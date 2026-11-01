@@ -266,3 +266,109 @@ def test_build_graph_resolves_javascript_named_import_function_alias(tmp_path):
     assert len(calls) == 1
     assert calls[0]["resolution"] == "imported_function"
     assert graph["call_resolution"]["resolved_calls"] == 1
+
+
+def test_python_instance_method_call_resolves_across_files(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+    from analyzer.repository_analyzer import analyze_repository
+
+    (tmp_path / "services.py").write_text(
+        "class UserService:\n"
+        "    def get_user(self):\n"
+        "        return 'user'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "consumer.py").write_text(
+        "from services import UserService\n"
+        "def run():\n"
+        "    service = UserService()\n"
+        "    service.get_user()\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    consumer = next(item for item in analysis if item["file"].endswith("consumer.py"))
+    assert consumer["instantiations"] == [{
+        "variable": "service",
+        "class_name": "UserService",
+        "line": 3,
+        "scope_function": "run",
+        "scope_class": None,
+    }]
+
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_file))
+
+    service_class = next(
+        node for node in graph["nodes"]
+        if node["type"] == "class" and node["label"] == "UserService"
+    )
+    method = next(
+        node for node in graph["nodes"]
+        if node["type"] == "function" and node["label"] == "get_user"
+    )
+    instance_calls = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "instance_method"
+    ]
+    assert len(instance_calls) == 1
+    assert instance_calls[0]["target"] == method["id"]
+    assert method["file"] == service_class["file"]
+
+
+def test_python_instance_method_resolution_respects_function_scope(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    service_file = str(tmp_path / "services.py")
+    caller_file = str(tmp_path / "consumer.py")
+    analysis = [
+        {
+            "file": service_file, "language": "python", "imports": [],
+            "import_details": [], "classes": [{"name": "UserService", "line": 1}],
+            "interfaces": [], "functions": [
+                {"name": "get_user", "line": 2, "class": "UserService"}
+            ], "calls": [], "instantiations": [],
+            "inheritance": [], "implementations": [],
+        },
+        {
+            "file": caller_file, "language": "python", "imports": ["services"],
+            "import_details": [
+                {"type": "from_import", "module": "services", "name": "UserService",
+                 "alias": None, "level": 0, "line": 1}
+            ],
+            "classes": [], "interfaces": [],
+            "functions": [
+                {"name": "first", "line": 2, "class": None},
+                {"name": "second", "line": 5, "class": None},
+            ],
+            "calls": [
+                {"name": "get_user", "called_from": "second", "called_from_line": 5,
+                 "called_from_class": None, "call_type": "attribute",
+                 "receiver": "service", "line": 6}
+            ],
+            "instantiations": [{
+                "variable": "service", "class_name": "UserService", "line": 3,
+                "scope_function": "first", "scope_class": None
+            }],
+            "inheritance": [], "implementations": [],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    assert not [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "instance_method"
+    ]
+    assert any(
+        detail["reason"] == "target_not_found"
+        for detail in graph["unresolved_call_details"]
+    )
