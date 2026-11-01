@@ -178,3 +178,91 @@ def test_build_graph_prefers_same_file_parent_over_external_duplicate(tmp_path):
         if edge["relationship"] == "extends" and edge["source"] == child
     }
     assert targets == {f"class:{analysis[0]['file']}:Base:1"}
+
+
+def test_build_graph_resolves_python_imported_function_and_class_method_aliases(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    service_file = str(tmp_path / "services.py")
+    caller_file = str(tmp_path / "consumer.py")
+    analysis = [
+        {
+            "file": service_file, "language": "python", "imports": [],
+            "import_details": [], "classes": [{"name": "UserService", "line": 1}],
+            "interfaces": [], "functions": [
+                {"name": "fetch_user", "line": 2, "class": None},
+                {"name": "get_user", "line": 3, "class": "UserService"},
+            ], "calls": [], "inheritance": [], "implementations": [],
+        },
+        {
+            "file": caller_file, "language": "python", "imports": ["services"],
+            "import_details": [
+                {"type": "from_import", "module": "services", "name": "fetch_user",
+                 "alias": "load_user", "level": 0, "line": 1},
+                {"type": "from_import", "module": "services", "name": "UserService",
+                 "alias": "Service", "level": 0, "line": 2},
+            ],
+            "classes": [], "interfaces": [],
+            "functions": [{"name": "run", "line": 4, "class": None}],
+            "calls": [
+                {"name": "load_user", "called_from": "run", "called_from_line": 4,
+                 "called_from_class": None, "call_type": "direct", "line": 5},
+                {"name": "get_user", "called_from": "run", "called_from_line": 4,
+                 "called_from_class": None, "call_type": "attribute",
+                 "receiver": "Service", "line": 6},
+            ],
+            "inheritance": [], "implementations": [],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    calls = [edge for edge in graph["edges"] if edge["relationship"] == "calls"]
+    assert len(calls) == 2
+    assert {edge["resolution"] for edge in calls} == {
+        "imported_function", "imported_class_method"
+    }
+    assert graph["call_resolution"]["resolved_calls"] == 2
+
+
+def test_build_graph_resolves_javascript_named_import_function_alias(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    source_file = str(tmp_path / "helpers.js")
+    caller_file = str(tmp_path / "app.js")
+    analysis = [
+        {
+            "file": source_file, "language": "javascript", "imports": [],
+            "import_details": [], "classes": [], "interfaces": [],
+            "functions": [{"name": "formatUser", "line": 1, "class": None}],
+            "calls": [], "inheritance": [], "implementations": [],
+        },
+        {
+            "file": caller_file, "language": "javascript", "imports": ["./helpers"],
+            "import_details": [
+                {"type": "import", "module": "./helpers", "name": "formatUser",
+                 "alias": "format", "import_kind": "named", "line": 1},
+            ],
+            "classes": [], "interfaces": [],
+            "functions": [{"name": "render", "line": 2, "class": None}],
+            "calls": [
+                {"name": "format", "called_from": "render", "called_from_line": 2,
+                 "called_from_class": None, "call_type": "direct",
+                 "expression": "format(user)", "line": 3},
+            ],
+            "inheritance": [], "implementations": [],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    calls = [edge for edge in graph["edges"] if edge["relationship"] == "calls"]
+    assert len(calls) == 1
+    assert calls[0]["resolution"] == "imported_function"
+    assert graph["call_resolution"]["resolved_calls"] == 1
