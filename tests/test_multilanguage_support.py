@@ -391,4 +391,5 @@ def test_repository_analyzer_skips_unsupported_file_extensions(tmp_path):
 
     assert len(results) == 1
     assert results[0]["language"] == "python"
+    assert not results[0].get("error")
     assert results[0]["file"].endswith("main.py")
