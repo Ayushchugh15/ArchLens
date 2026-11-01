@@ -538,23 +538,22 @@
     <!-- Architecture findings -->
 
     <article class="dashboard-panel findings-panel">
-
-        <div class="dashboard-panel-header">
-            <div>
-                <h3>Architecture Risk Register</h3>
-                <p>
-                    Detected structural patterns, affected components,
-                    and suggested actions.
+        <details class="risk-register-disclosure">
+            <summary class="risk-register-summary">
+                <span class="risk-register-title">Architecture Risk Register</span>
+                <span id="riskCount" class="risk-register-count">Awaiting analysis</span>
+            </summary>
+            <div class="risk-register-content">
+                <p class="risk-register-description">
+                    Detected structural patterns, affected components, and suggested actions.
                 </p>
+                <div id="architectureFindings">
+                    <p class="dashboard-empty">
+                        Load a repository to inspect architecture findings.
+                    </p>
+                </div>
             </div>
-        </div>
-
-        <div id="architectureFindings">
-            <p class="dashboard-empty">
-                Load a repository to inspect architecture findings.
-            </p>
-        </div>
-
+        </details>
     </article>
 
     <p class="dashboard-disclaimer">
@@ -694,7 +693,7 @@
         <div class="assistant-context" id="assistantContext">Select and load a repository to start asking questions.</div>
         <label class="assistant-input-label" for="question">Your question</label>
         <textarea id="question" class="assistant-question" placeholder="e.g. How does a request flow through this application?"></textarea>
-        <div class="assistant-actions"><span class="assistant-shortcut">Ctrl + Enter to send</span>
+        <div class="assistant-actions">
             <button type="button" id="askButton" class="assistant-send">Ask ArchLens</button></div>
         <section class="assistant-response" aria-live="polite">
             <h3>AI Answer</h3><div id="answer">Ask a question to analyze the repository.</div>
