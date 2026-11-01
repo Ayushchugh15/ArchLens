@@ -664,10 +664,6 @@ async function askArchLens() {
     const sourcesContainer = getElement("sources");
     const button = getElement("askButton");
     const repositorySelect = getElement("repository");
-    const assistantToggle = getElement("assistantToggle");
-    const assistantPanel = getElement("assistantPanel");
-    const assistantClose = getElement("assistantClose");
-    const questionInput = getElement("question");
 
     if (!questionInput || !answerContainer || !button) {
         console.error("One or more Q&A HTML elements are missing.");
@@ -1267,6 +1263,10 @@ function initializeArchLens() {
     const impactButton = getElement("impactButton");
     const refreshDashboardButton = getElement("refreshDashboard");
     const repositorySelect = getElement("repository");
+    const assistantToggle = getElement("assistantToggle");
+    const assistantPanel = getElement("assistantPanel");
+    const assistantClose = getElement("assistantClose");
+    const questionInput = getElement("question");
 
     if (askButton && !askButton.dataset.listenerAttached) {
         askButton.dataset.listenerAttached = "true";
