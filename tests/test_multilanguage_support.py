@@ -599,29 +599,29 @@ def test_java_typed_parameters_and_locals_resolve_calls_with_overloads(tmp_path)
     from analyzer.build_graph import build_graph
 
     (tmp_path / "Owner.java").write_text(
-        "class Owner {\\n"
-        "  Pet getPet(int id) { return null; }\\n"
-        "  Pet getPet(String name) { return null; }\\n"
-        "  void addVisit(int id, Visit visit) {}\\n"
-        "}\\n",
+        "class Owner {\n"
+        "  Pet getPet(int id) { return null; }\n"
+        "  Pet getPet(String name) { return null; }\n"
+        "  void addVisit(int id, Visit visit) {}\n"
+        "}\n",
         encoding="utf-8",
     )
     (tmp_path / "Pet.java").write_text(
-        "class Pet { void addVisit(Visit visit) {} }\\n",
+        "class Pet { void addVisit(Visit visit) {} }\n",
         encoding="utf-8",
     )
     (tmp_path / "Visit.java").write_text(
-        "class Visit {}\\n",
+        "class Visit {}\n",
         encoding="utf-8",
     )
     (tmp_path / "VisitController.java").write_text(
-        "class VisitController {\\n"
-        "  void load(Owner owner, int petId, Visit visit) {\\n"
-        "    Pet pet = owner.getPet(petId);\\n"
-        "    pet.addVisit(visit);\\n"
-        "    owner.addVisit(petId, visit);\\n"
-        "  }\\n"
-        "}\\n",
+        "class VisitController {\n"
+        "  void load(Owner owner, int petId, Visit visit) {\n"
+        "    Pet pet = owner.getPet(petId);\n"
+        "    pet.addVisit(visit);\n"
+        "    owner.addVisit(petId, visit);\n"
+        "  }\n"
+        "}\n",
         encoding="utf-8",
     )
 
