@@ -6,14 +6,14 @@ ArchLens analyzes source repositories, builds an architecture graph, indexes cod
 
 ## Language support
 
-ArchLens uses Python's AST for Python and Tree-sitter grammars for additional languages.
+ArchLens uses Python's AST for Python, the official TypeScript compiler API for JavaScript/JSX/TypeScript/TSX, and Tree-sitter grammars for the other configured languages.
 
 | Language | File extensions | Current support |
 |---|---|---|
 | Python | `.py` | AST analysis and declaration-aware chunks |
-| JavaScript | `.js`, `.mjs`, `.cjs` | Parser analysis and Tree-sitter chunks |
-| TypeScript | `.ts` | Parser analysis and Tree-sitter chunks |
-| JSX / TSX | `.jsx`, `.tsx` | TSX grammar parsing and chunks |
+| JavaScript | `.js`, `.mjs`, `.cjs` | TypeScript compiler AST: imports, declarations, calls, class heritage, and declaration chunks |
+| TypeScript | `.ts` | TypeScript compiler AST: imports, declarations, calls, class heritage, and declaration chunks |
+| JSX / TSX | `.jsx`, `.tsx` | TypeScript compiler AST using JSX/TSX syntax mode |
 | Java | `.java` | Generic syntax analysis and chunks |
 | C# | `.cs` | Generic syntax analysis and chunks |
 | Go | `.go` | Generic syntax analysis and chunks |
@@ -25,12 +25,12 @@ ArchLens uses Python's AST for Python and Tree-sitter grammars for additional la
 | Kotlin | `.kt`, `.kts` | Generic syntax analysis and chunks |
 | Swift | `.swift` | Generic syntax analysis and chunks |
 
-**Support-level note:** Language recognition, syntax parsing, and code chunking are being expanded first. The generic Tree-sitter adapter currently extracts common declaration and import nodes; it does not yet provide complete language-specific call resolution, inheritance resolution, or framework-aware semantics for every language. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
+**Support-level note:** JavaScript/TypeScript parsing is performed by the TypeScript compiler API through Node.js; it no longer uses the native Tree-sitter Python binding. Java, C#, Go, C, C++, Rust, PHP, Ruby, Kotlin, and Swift use the generic Tree-sitter adapter, which currently extracts common declarations and imports. Generic-language parsing is not yet complete language-specific semantic analysis. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
 
 ## Core capabilities
 
 - Repository import from public GitHub HTTPS URLs
-- Python AST and Tree-sitter source analysis
+- Python AST, TypeScript compiler AST, and Tree-sitter source analysis
 - File, class, interface, and function extraction where supported by the grammar
 - Import statement extraction
 - Architecture graph generation
@@ -50,7 +50,7 @@ Language / Extension Registry
        |
        +--> Python AST Parser
        |
-       +--> Tree-sitter Parsers
+       +--> TypeScript compiler API (JS / JSX / TS / TSX)\n       |\n       +--> Tree-sitter Parsers (Java / C# / Go / C / C++ / Rust / PHP / Ruby / Kotlin / Swift)
        |
        v
 Normalized Analysis Records
@@ -79,7 +79,7 @@ Normalized Analysis Records
 
 - Python, FastAPI
 - Python AST
-- Tree-sitter Language Pack
+- TypeScript compiler API (Node.js)\n- Tree-sitter Language Pack
 - ChromaDB
 - Ollama
 - `nomic-embed-text` embeddings
@@ -122,7 +122,7 @@ The multi-language tests verify that configured grammars load and representative
 
 ## Current limitations
 
-- Generic parser support is not equivalent to production-grade semantic analysis for every language.
+- Generic parser support is not equivalent to production-grade semantic analysis for every language. JavaScript/TypeScript uses the TypeScript compiler AST; other non-Python languages still use generic Tree-sitter extraction.
 - Cross-file inheritance and interface implementation are resolved only when a referenced symbol has one unique definition; ambiguous matches are reported rather than guessed.\n- Python and JavaScript/TypeScript import-to-class links remain limited to the import forms currently extracted by their parsers.\n- Cross-file call resolution currently supports Python `from ... import ...` function/class aliases and JavaScript/TypeScript relative named imports for functions and class-qualified methods.\n- Python object-instance method resolution currently handles simple constructor assignments only; reassignment, factory-returned objects, and complex data flow are not modeled.\n- Python-to-Java (and other cross-language) call or service relationship resolution is not implemented. Parsing both languages in one repository does not mean ArchLens understands how their components communicate.\n- Default/namespace imports, re-exports, package-specific module rules, and cross-file calls for the generic Tree-sitter languages are not yet implemented.
 - Code chunking and indexing are language-aware, but retrieval quality must be evaluated per language.
 - Large repositories may require chunk-size limits, incremental indexing, and resource controls.
