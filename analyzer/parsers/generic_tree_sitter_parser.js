@@ -161,7 +161,7 @@ async function main() {
       if (language === "java" && type === "class_declaration") {
         const superclass = node.childForFieldName("superclass");
         if (superclass) {
-          const parent = nodeText(superclass, source).replace(/^extends\\s+/, "").trim();
+          const parent = nodeText(superclass, source).replace(/^extends\s+/, "").trim();
           if (parent) result.inheritance.push({ class: getName(node, source), parent, line });
         }
         const interfaces = node.childForFieldName("interfaces");
@@ -181,7 +181,7 @@ async function main() {
         if (fieldType && declarator) {
           const fieldName = getName(declarator, source);
           const declaredType = nodeText(fieldType, source).replace(/<.*>$/, "").trim();
-          if (fieldName && declaredType && /^[A-Za-z_$][\\w$]*$/.test(declaredType)) {
+          if (fieldName && declaredType && /^[A-Za-z_$][\w$]*$/.test(declaredType)) {
             result.typed_fields.push({
               class: currentClass, name: fieldName, type: declaredType, line
             });
