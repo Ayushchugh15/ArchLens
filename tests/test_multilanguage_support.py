@@ -26,7 +26,7 @@ def test_repository_analyzer_recognizes_additional_languages(tmp_path):
     languages = {item["language"] for item in results}
 
     assert {
-        "java", "c_sharp", "go", "c", "cpp",
+        "java", "csharp", "go", "c", "cpp",
         "rust", "php", "ruby", "kotlin", "swift",
     } <= languages
     errors = [(item["language"], item.get("error")) for item in results if item.get("error")]
@@ -42,7 +42,7 @@ def test_chunker_creates_language_tagged_chunks(tmp_path):
 
     assert len(chunks) >= len(SAMPLES)
     assert {
-        "java", "c_sharp", "go", "c", "cpp",
+        "java", "csharp", "go", "c", "cpp",
         "rust", "php", "ruby", "kotlin", "swift",
     } <= languages
     assert all(chunk["document"].strip() for chunk in chunks)
