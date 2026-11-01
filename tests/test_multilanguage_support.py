@@ -29,7 +29,8 @@ def test_repository_analyzer_recognizes_additional_languages(tmp_path):
         "java", "c_sharp", "go", "c", "cpp",
         "rust", "php", "ruby", "kotlin", "swift",
     } <= languages
-    assert all("error" not in item for item in results)
+    errors = [(item["language"], item.get("error")) for item in results if item.get("error")]
+    assert not errors, errors
 
 
 def test_chunker_creates_language_tagged_chunks(tmp_path):
