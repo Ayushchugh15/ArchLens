@@ -6,3 +6,38 @@ __pycache__/
 chroma_db/
 vector_db/
 
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Imported repository clones
+imported_repositories/repositories/
+
+# Generated vector databases
+imported_repositories/generated/*/vector_db/
+
+# Intermediate/debug outputs
+imported_repositories/generated/*/analysis_before_*.json
+
+# Temporary backups
+*.backup
+*.before_*.py
+
+# Temporary test outputs
+code_chunks_*_test.json
+
+# Imported repository runtime data
+imported_repositories/repositories/
+imported_repositories/generated/
+imported_repositories/metadata/
+
+# Local environment
+.venv/
+venv/
+env/
+
+# Temporary system output
+udo systemctl edit ollama
+

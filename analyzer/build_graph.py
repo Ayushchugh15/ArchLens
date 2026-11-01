@@ -1,345 +1,609 @@
 import json
 import os
 import sys
+from collections import defaultdict
+def get_module_name(file_path, repo_root):
+    relative = os.path.relpath(file_path, repo_root)
 
+    parts = relative.replace("\\", "/").split("/")
 
-# ============================================================
-# BUILD REPOSITORY-SPECIFIC ARCHITECTURE GRAPH
-# ============================================================
+    if parts[0] == "src":
+        parts = parts[1:]
+
+    if parts[-1] == "__init__.py":
+        parts = parts[:-1]
+    elif parts[-1].endswith(".py"):
+        parts[-1] = parts[-1][:-3]
+
+    return ".".join(parts)
+
+def resolve_import_module(module, level, current_module):
+    if level == 0:
+        return module
+
+    package = current_module.split(".")[:-1]
+
+    if level > 1:
+        package = package[:-(level - 1)]
+
+    if module:
+        package.extend(module.split("."))
+
+    return ".".join(package)
+
+def build_module_index(analysis):
+    module_map = {}
+
+    file_paths = [item["file"] for item in analysis]
+
+    if not file_paths:
+        return module_map
+
+    repo_root = os.path.commonpath(file_paths)
+
+    # Move the root above src/ when a src layout exists.
+    for file_path in file_paths:
+        parts = file_path.replace("\\", "/").split("/")
+
+        if "src" in parts:
+            src_index = parts.index("src")
+            src_root = "/".join(parts[:src_index])
+            repo_root = src_root or "."
+            break
+
+    for item in analysis:
+        module_name = get_module_name(item["file"], repo_root)
+        module_map[module_name] = item
+
+    return module_map
+
+def resolve_import_target(import_detail, current_module, module_map):
+    module = import_detail.get("module")
+    name = import_detail.get("name")
+    level = import_detail.get("level", 0)
+
+    base_module = resolve_import_module(
+        module, level, current_module
+    )
+
+    if not name:
+        return None, None, None
+
+    # First check whether the imported name is itself a submodule.
+    submodule = ".".join(filter(None, [base_module, name]))
+
+    if submodule in module_map:
+        return module_map[submodule], None, submodule
+
+    # Otherwise, treat it as a symbol imported from the module.
+    if base_module in module_map:
+        return module_map[base_module], name, base_module
+
+    return None, None, None
+
+def classify_file(file_path):
+    normalized = file_path.replace("\\", "/").lower()
+    parts = normalized.split("/")
+
+    if "tests" in parts or "test" in parts:
+        return "test"
+
+    if "docs" in parts or "documentation" in parts:
+        return "documentation"
+
+    filename = parts[-1]
+
+    if filename in {
+        "setup.py",
+        "setup.cfg",
+        "pyproject.toml",
+        "requirements.txt",
+        "tox.ini",
+        "pytest.ini",
+    }:
+        return "configuration"
+
+    if "src" in parts:
+        return "production"
+
+    return "other"
 
 def build_graph(analysis_file):
-
-    with open(
-        analysis_file,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(analysis_file, "r", encoding="utf-8") as f:
         analysis = json.load(f)
 
     nodes = []
     edges = []
 
-    # --------------------------------------------------------
-    # Maps for resolving relationships
-    # --------------------------------------------------------
-
-    function_nodes = {}
+    function_nodes = defaultdict(list)
     class_nodes = {}
     file_nodes = {}
 
-    # --------------------------------------------------------
-    # FILE NODES
-    # --------------------------------------------------------
-
+    # Create file nodes
     for item in analysis:
-
         file_path = item["file"]
-
         file_id = f"file:{file_path}"
-
         file_nodes[file_path] = file_id
 
         nodes.append({
             "id": file_id,
             "type": "file",
-            "label": os.path.basename(file_path)
+            "label": os.path.basename(file_path),
+            "file": file_path,
+            "file_category": classify_file(file_path),
         })
 
-    # --------------------------------------------------------
-    # IMPORT NODES
-    # --------------------------------------------------------
-
-    imported_modules = set()
+    # Create module nodes and import relationships
+    module_ids = set()
 
     for item in analysis:
-
         file_path = item["file"]
         source_id = file_nodes[file_path]
 
         for imported in item.get("imports", []):
+            module_id = f"module:{imported}"
 
-            # Example:
-            # from payment import process_payment
-            #
-            # imported may be:
-            # payment
-
-            module_name = imported
-
-            imported_modules.add(module_name)
-
-            module_id = f"module:{module_name}"
-
-            if not any(
-                node["id"] == module_id
-                for node in nodes
-            ):
+            if module_id not in module_ids:
+                module_ids.add(module_id)
                 nodes.append({
                     "id": module_id,
                     "type": "module",
-                    "label": module_name
+                    "label": imported,
+                    "file": "",
                 })
 
             edges.append({
                 "source": source_id,
                 "target": module_id,
-                "relationship": "imports"
+                "relationship": "imports",
             })
 
-    # --------------------------------------------------------
-    # CLASS NODES
-    # --------------------------------------------------------
-
+    # Create class nodes
     for item in analysis:
-
         file_path = item["file"]
-
         file_id = file_nodes[file_path]
 
         for cls in item.get("classes", []):
-
             class_name = cls["name"]
+            line = cls.get("line", 0)
 
-            class_id = (
-                f"class:{file_path}:{class_name}"
-            )
+            class_id = f"class:{file_path}:{class_name}:{line}"
 
-            class_nodes[class_name] = class_id
+            class_nodes[(file_path, class_name)] = class_id
 
             nodes.append({
                 "id": class_id,
                 "type": "class",
-                "label": class_name
+                "label": class_name,
+                "file": file_path,
+                "line": line,
+                "file_category": classify_file(file_path),
             })
 
             edges.append({
                 "source": file_id,
                 "target": class_id,
-                "relationship": "contains"
+                "relationship": "contains",
             })
 
-    # --------------------------------------------------------
-    # FUNCTION NODES
-    # --------------------------------------------------------
+    # Create interface nodes
+    interface_nodes = {}
 
     for item in analysis:
-
         file_path = item["file"]
-
         file_id = file_nodes[file_path]
 
-        for function in item.get(
-            "functions",
-            []
-        ):
+        for interface in item.get("interfaces", []):
+            interface_name = interface["name"]
+            line = interface.get("line", 0)
 
-            function_name = function["name"]
-
-            function_id = (
-                f"function:{file_path}:{function_name}"
+            interface_id = (
+                f"interface:{file_path}:{interface_name}:{line}"
             )
 
-            function_nodes.setdefault(
-                function_name,
-                []
-            ).append(function_id)
+            interface_nodes[(file_path, interface_name)] = interface_id
+
+            nodes.append({
+                "id": interface_id,
+                "type": "interface",
+                "label": interface_name,
+                "file": file_path,
+                "line": line,
+                "file_category": classify_file(file_path),
+            })
+
+            edges.append({
+                "source": file_id,
+                "target": interface_id,
+                "relationship": "contains",
+            })
+
+    # Resolve inheritance and interface implementations
+    for item in analysis:
+        file_path = item["file"]
+
+        for relationship in item.get("inheritance", []):
+            class_name = relationship.get("class")
+            parent_name = relationship.get("parent")
+
+            source_id = class_nodes.get((file_path, class_name))
+            target_id = class_nodes.get((file_path, parent_name))
+
+            if source_id and target_id:
+                edges.append({
+                    "source": source_id,
+                    "target": target_id,
+                    "relationship": "extends",
+                    "line": relationship.get("line"),
+                })
+
+        for relationship in item.get("implementations", []):
+            class_name = relationship.get("class")
+            interface_name = relationship.get("interface")
+
+            source_id = class_nodes.get((file_path, class_name))
+            target_id = interface_nodes.get(
+                (file_path, interface_name)
+            )
+
+            if source_id and target_id:
+                edges.append({
+                    "source": source_id,
+                    "target": target_id,
+                    "relationship": "implements",
+                    "line": relationship.get("line"),
+                })
+
+    # Create module index for symbol-level import resolution.
+    module_map = build_module_index(analysis)
+
+    module_by_file = {
+        record["file"]: module
+        for module, record in module_map.items()
+    }
+
+    # Resolve imported class symbols.
+    for item in analysis:
+        current_module = module_by_file.get(item["file"])
+
+        for imp in item.get("import_details", []):
+            if imp.get("type") != "from_import":
+                continue
+
+            target_record, symbol, target_module = resolve_import_target(
+                imp, current_module, module_map
+            )
+
+            if not target_record or not symbol:
+                continue
+
+            target_class_id = class_nodes.get(
+                (target_record["file"], symbol)
+            )
+
+            if not target_class_id:
+                continue
+
+            edges.append({
+                "source": file_nodes[item["file"]],
+                "target": target_class_id,
+                "relationship": "imports_symbol",
+                "line": imp.get("line"),
+            })
+
+    # Resolve JavaScript and TypeScript named imports
+    analysis_paths = {
+        os.path.normpath(item["file"]): item
+        for item in analysis
+    }
+
+    for item in analysis:
+        source_file = item["file"]
+        source_id = file_nodes[source_file]
+
+        for imp in item.get("import_details", []):
+
+            if imp.get("import_kind") != "named":
+                continue
+
+            module = imp.get("module", "")
+            imported_name = imp.get("name")
+
+            # Only resolve relative imports for now.
+            if not module.startswith(".") or not imported_name:
+                continue
+
+            base_path = os.path.normpath(
+                os.path.join(os.path.dirname(source_file), module)
+            )
+
+            candidates = [
+                base_path,
+                base_path + ".ts",
+                base_path + ".tsx",
+                base_path + ".js",
+                base_path + ".jsx",
+                os.path.join(base_path, "index.ts"),
+                os.path.join(base_path, "index.tsx"),
+                os.path.join(base_path, "index.js"),
+                os.path.join(base_path, "index.jsx"),
+            ]
+
+            target_file = next(
+                (
+                    path for path in candidates
+                    if path in analysis_paths
+                ),
+                None
+            )
+
+            if not target_file:
+                continue
+
+            target_class_id = class_nodes.get(
+                (target_file, imported_name)
+            )
+
+            if not target_class_id:
+                continue
+
+            edges.append({
+                "source": source_id,
+                "target": target_class_id,
+                "relationship": "imports_symbol",
+                "imported_name": imported_name,
+                "local_name": imp.get("alias") or imported_name,
+                "line": imp.get("line"),
+                "resolution": "relative_named_import",
+            })
+
+    # Create function nodes
+    for item in analysis:
+        file_path = item["file"]
+        file_id = file_nodes[file_path]
+
+        for function in item.get("functions", []):
+            function_name = function["name"]
+            line = function.get("line", 0)
+            class_name = function.get("class")
+
+            function_id = (
+                f"function:{file_path}:{function_name}:{line}"
+            )
+
+            function_info = {
+                "id": function_id,
+                "name": function_name,
+                "file": file_path,
+                "class": class_name,
+                "line": line,
+            }
+
+            function_nodes[function_name].append(function_info)
 
             nodes.append({
                 "id": function_id,
                 "type": "function",
-                "label": function_name
+                "label": function_name,
+                "file": file_path,
+                "line": line,
+                "class": class_name,
+                "file_category": classify_file(file_path),
             })
 
-            class_name = function.get(
-                "class"
-            )
-
             if class_name:
-
-                class_id = class_nodes.get(
-                    class_name
-                )
+                class_id = class_nodes.get((file_path, class_name))
 
                 if class_id:
-
                     edges.append({
                         "source": class_id,
                         "target": function_id,
-                        "relationship": "contains"
+                        "relationship": "contains",
                     })
-
             else:
-
                 edges.append({
                     "source": file_id,
                     "target": function_id,
-                    "relationship": "contains"
+                    "relationship": "contains",
                 })
 
-    # --------------------------------------------------------
-    # CALL RELATIONSHIPS
-    # --------------------------------------------------------
+    # Resolve call relationships conservatively
+    # Build module index once
+    module_map = build_module_index(analysis)
+
+    module_by_file = {
+        record["file"]: module
+        for module, record in module_map.items()
+    }
+
+    resolved_calls = 0
+    unresolved_calls = 0
+    unresolved_reasons = defaultdict(int)
 
     for item in analysis:
-
         file_path = item["file"]
+        current_module = module_by_file.get(file_path)
 
-        for call in item.get(
-            "calls",
-            []
-        ):
+        import_bindings = {}
 
-            called_name = call["name"]
-
-            called_from = call.get(
-                "called_from"
-            )
-
-            # Find source function
-            source_candidates = []
-
-            for function_name, function_ids in function_nodes.items():
-
-                if function_name == called_from:
-
-                    source_candidates.extend(
-                        function_ids
-                    )
-
-            if not source_candidates:
+        for imp in item.get("import_details", []):
+            if imp.get("type") != "from_import":
                 continue
 
-            source_id = None
-
-            # Prefer a function in the same file
-            for candidate in source_candidates:
-
-                if f"function:{file_path}:" in candidate:
-
-                    source_id = candidate
-                    break
-
-            if source_id is None:
-
-                source_id = source_candidates[0]
-
-            # ------------------------------------------------
-            # Resolve target function
-            # ------------------------------------------------
-
-            target_id = None
-
-            candidates = function_nodes.get(
-                called_name,
-                []
+            target_record, symbol, target_module = resolve_import_target(
+                imp, current_module, module_map
             )
 
-            # Prefer a function from another file
-            # when the call is imported.
-            for candidate in candidates:
+            if target_record and symbol:
+                local_name = imp.get("alias") or symbol
 
-                if candidate != source_id:
-                    target_id = candidate
-                    break
+                import_bindings[local_name] = (
+                    target_record,
+                    symbol,
+                    target_module
+                )
 
-            if target_id:
+        for call in item.get("calls", []):
+            called_name = call.get("name")
+            called_from = call.get("called_from")
+            caller_line = call.get("called_from_line")
+            caller_class = call.get("called_from_class")
+            call_type = call.get("call_type", "direct")
+            receiver = call.get("receiver")
 
-                edges.append({
-                    "source": source_id,
-                    "target": target_id,
-                    "relationship": "calls"
-                })
+            if not called_name or not called_from or not caller_line:
+                unresolved_calls += 1
+                unresolved_reasons["missing_caller"] += 1
+                continue
 
-    # --------------------------------------------------------
-    # REMOVE DUPLICATE EDGES
-    # --------------------------------------------------------
+            # Find the exact caller using its file, name and line.
+            source_candidates = [
+                candidate
+                for candidate in function_nodes.get(called_from, [])
+                if candidate["file"] == file_path
+                and candidate["line"] == caller_line
+                and candidate["class"] == caller_class
+            ]
 
+            if len(source_candidates) != 1:
+                unresolved_calls += 1
+                unresolved_reasons["ambiguous_or_missing_caller"] += 1
+                continue
+
+            source = source_candidates[0]
+            target_candidates = []
+
+            if call_type == "direct":
+                # First try resolving an imported function.
+                binding = import_bindings.get(called_name)
+
+                if binding:
+                    target_record, symbol, target_module = binding
+
+                    target_candidates = [
+                        candidate
+                        for candidate in function_nodes.get(symbol, [])
+                        if candidate["file"] == target_record["file"]
+                        and candidate["class"] is None
+                    ]
+
+                else:
+                    # Otherwise, resolve within the same file.
+                    target_candidates = [
+                        candidate
+                        for candidate in function_nodes.get(called_name, [])
+                        if candidate["file"] == file_path
+                    ]
+
+            elif call_type == "attribute" and receiver == "self":
+                # Resolve self.method() only within the same class.
+                if caller_class:
+                    target_candidates = [
+                        candidate
+                        for candidate in function_nodes.get(called_name, [])
+                        if candidate["file"] == file_path
+                        and candidate["class"] == caller_class
+                    ]
+
+            elif call_type == "attribute" and receiver:
+                # Resolve ClassName.method() only when the class
+                # and method identify one unique target in this file.
+                if receiver.isidentifier():
+                    target_candidates = [
+                        candidate
+                        for candidate in function_nodes.get(called_name, [])
+                        if candidate["file"] == file_path
+                        and candidate["class"] == receiver
+                    ]
+
+            else:
+                unresolved_calls += 1
+                unresolved_reasons["unsupported_call_type"] += 1
+                continue
+
+            # Never guess when multiple targets have the same name.
+            if len(target_candidates) != 1:
+                unresolved_calls += 1
+
+                if not target_candidates:
+                    unresolved_reasons["target_not_found"] += 1
+                else:
+                    unresolved_reasons["ambiguous_target"] += 1
+
+                continue
+
+            target = target_candidates[0]
+
+            edges.append({
+                "source": source["id"],
+                "target": target["id"],
+                "relationship": "calls",
+                "call_expression": call.get("expression"),
+                "call_line": call.get("line"),
+                "resolution": (
+                    "imported_symbol"
+                    if call_type == "direct"
+                    and called_name in import_bindings
+                    else "unique_name_and_scope"
+                ),
+            })
+
+            resolved_calls += 1
+
+    # Remove duplicate edges
     unique_edges = []
-
     seen_edges = set()
 
     for edge in edges:
-
         key = (
             edge["source"],
             edge["target"],
-            edge["relationship"]
+            edge["relationship"],
+            edge.get("call_line"),
+            edge.get("line"),
+            edge.get("local_name"),
+            edge.get("imported_name"),
         )
 
         if key not in seen_edges:
-
             seen_edges.add(key)
-
             unique_edges.append(edge)
 
-    edges = unique_edges
-
-    # --------------------------------------------------------
-    # FINAL GRAPH
-    # --------------------------------------------------------
-
-    graph = {
+    return {
         "nodes": nodes,
-        "edges": edges
+        "edges": unique_edges,
+        "call_resolution": {
+            "resolved_calls": resolved_calls,
+            "unresolved_calls": unresolved_calls,
+            "unresolved_reasons": dict(unresolved_reasons),
+            "method": "Conservative same-file, class-scope, and imported-symbol resolution",
+        },
     }
 
-    return graph
-
-
-# ============================================================
-# MAIN
-# ============================================================
 
 def main():
-
     if len(sys.argv) != 3:
-
         print(
-            "Usage:\n"
-            "python3 analyzer/build_graph.py "
+            "Usage: python3 analyzer/build_graph.py "
             "<analysis_file> <output_file>"
         )
-
         sys.exit(1)
 
     analysis_file = sys.argv[1]
     output_file = sys.argv[2]
 
-    graph = build_graph(
-        analysis_file
-    )
+    graph = build_graph(analysis_file)
 
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(graph, f, indent=2)
 
-        json.dump(
-            graph,
-            f,
-            indent=2
-        )
-
-    print(
-        "Architecture graph created."
-    )
-
-    print(
-        f"Input : {analysis_file}"
-    )
-
-    print(
-        f"Output: {output_file}"
-    )
-
-    print(
-        f"Nodes : {len(graph['nodes'])}"
-    )
-
-    print(
-        f"Edges : {len(graph['edges'])}"
-    )
+    print("Architecture graph created.")
+    print(f"Input : {analysis_file}")
+    print(f"Output: {output_file}")
+    print(f"Nodes : {len(graph['nodes'])}")
+    print(f"Edges : {len(graph['edges'])}")
+    print("Call resolution:")
+    print(json.dumps(graph["call_resolution"], indent=2))
 
 
 if __name__ == "__main__":

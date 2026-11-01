@@ -1,0 +1,33 @@
+# Git
+.git/
+.gitignore
+
+# Python environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment variables and secrets
+.env
+
+# Backups
+*.backup
+*.before_*.py
+*.bak
+
+# Generated vector databases
+vector_db/
+chroma_db/
+**/vector_db/
+
+# Cloned repositories
+imported_repositories/repositories/
+
+# Temporary test files
+code_chunks_*_test.json
+
+# Debug outputs
+imported_repositories/generated/*/analysis_before_*.json

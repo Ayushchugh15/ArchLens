@@ -64,7 +64,11 @@ def create_chunks(repository_path):
                     source = f.read()
 
                 tree = ast.parse(source)
+                parent_map = {}
 
+                for parent in ast.walk(tree):
+                    for child in ast.iter_child_nodes(parent):
+                        parent_map[child] = parent
             except Exception as e:
                 print(
                     f"Could not analyze {file_path}: {e}"
@@ -92,6 +96,7 @@ def create_chunks(repository_path):
             # CLASS + FUNCTION CHUNKS
             # -------------------------------------------------
 
+
             for node in ast.walk(tree):
 
                 # -----------------------------
@@ -100,6 +105,7 @@ def create_chunks(repository_path):
 
                 if isinstance(node, ast.ClassDef):
 
+                    class_name = node.name
                     class_code = get_source_segment(
                         source,
                         node
@@ -126,6 +132,12 @@ def create_chunks(repository_path):
                     node,
                     (ast.FunctionDef, ast.AsyncFunctionDef)
                 ):
+                    parent = parent_map.get(node)
+
+                    while parent and not isinstance(parent, ast.ClassDef):
+                        parent = parent_map.get(parent)
+
+                    parent_class = parent
 
                     function_code = get_source_segment(
                         source,
@@ -141,7 +153,18 @@ def create_chunks(repository_path):
                                 "file": relative_path,
                                 "type": "function",
                                 "name": node.name,
-                                "line": node.lineno
+                                "class_name": (
+                                    parent_class.name
+                                    if parent_class
+                                    else None
+                                ),
+                                "qualified_name": (
+                                    f"{parent_class.name}.{node.name}"
+                                    if parent_class
+                                    else node.name
+                                ),
+                                "line": node.lineno,
+                                "end_line": node.end_lineno
                             }
                         })
 

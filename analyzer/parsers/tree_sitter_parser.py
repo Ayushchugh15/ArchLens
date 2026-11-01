@@ -98,28 +98,99 @@ class TreeSitterParser(BaseParser):
                 if node_type == "import_statement":
 
                     module_node = None
+                    import_clause = None
 
                     for child in node.children:
                         if child.type == "string":
                             module_node = child
-                            break
+                        elif child.type == "import_clause":
+                            import_clause = child
 
                     if module_node:
-                        module = text(module_node).strip(
-                            "'\""
-                        )
+                        module = text(module_node).strip("'\"")
 
                         result["imports"].append(module)
 
-                        result["import_details"].append({
-                            "type": "import",
-                            "module": module,
-                            "name": None,
-                            "alias": None,
-                            "line": node.start_point.row + 1,
-                            "level": 0,
-                        })
+                        line = node.start_point.row + 1
 
+                        if import_clause is None:
+                            result["import_details"].append({
+                                "type": "import",
+                                "module": module,
+                                "name": None,
+                                "alias": None,
+                                "import_kind": "side_effect",
+                                "line": line,
+                                "level": 0,
+                            })
+
+                        else:
+                            for child in import_clause.children:
+
+                                # Default import
+                                if child.type == "identifier":
+                                    local_name = text(child)
+
+                                    result["import_details"].append({
+                                        "type": "import",
+                                        "module": module,
+                                        "name": None,
+                                        "alias": local_name,
+                                        "import_kind": "default",
+                                        "line": line,
+                                        "level": 0,
+                                    })
+
+                                # Named imports
+                                elif child.type == "named_imports":
+                                    for specifier in child.children:
+                                        if specifier.type != "import_specifier":
+                                            continue
+
+                                        identifiers = [
+                                            part for part in specifier.children
+                                            if part.type == "identifier"
+                                        ]
+
+                                        if not identifiers:
+                                            continue
+
+                                        imported_name = text(identifiers[0])
+                                        local_name = text(identifiers[-1])
+
+                                        result["import_details"].append({
+                                            "type": "import",
+                                            "module": module,
+                                            "name": imported_name,
+                                            "alias": (
+                                                local_name
+                                                if local_name != imported_name
+                                                else None
+                                            ),
+                                            "import_kind": "named",
+                                            "line": line,
+                                            "level": 0,
+                                        })
+
+                                # Namespace imports
+                                elif child.type == "namespace_import":
+                                    identifiers = [
+                                        part for part in child.children
+                                        if part.type == "identifier"
+                                    ]
+
+                                    if identifiers:
+                                        local_name = text(identifiers[-1])
+
+                                        result["import_details"].append({
+                                            "type": "import",
+                                            "module": module,
+                                            "name": None,
+                                            "alias": local_name,
+                                            "import_kind": "namespace",
+                                            "line": line,
+                                            "level": 0,
+                                        })
 
                 # INTERFACES
                 if node_type == "interface_declaration":

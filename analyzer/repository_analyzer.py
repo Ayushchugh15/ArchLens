@@ -11,19 +11,41 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.classes = []
         self.functions = []
         self.calls = []
+        self.import_details = []
+
 
         self.current_class = None
         self.current_function = None
+        self.current_function_line = None
 
     def visit_Import(self, node):
         for alias in node.names:
             self.imports.append(alias.name)
+
+            self.import_details.append({
+                "type": "import",
+                "module": alias.name,
+                "name": None,
+                "alias": alias.asname,
+                "line": node.lineno,
+                "level": 0
+            })
 
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
         if node.module:
             self.imports.append(node.module)
+
+        for alias in node.names:
+            self.import_details.append({
+                "type": "from_import",
+                "module": node.module,
+                "name": alias.name,
+                "alias": alias.asname,
+                "line": node.lineno,
+                "level": node.level
+            })
 
         self.generic_visit(node)
 
@@ -39,13 +61,20 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
         self.current_class = previous_class
-
     def visit_FunctionDef(self, node):
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._visit_function(node)
+
+    def _visit_function(self, node):
         function_info = {
             "name": node.name,
             "line": node.lineno,
             "arguments": [
-                arg.arg for arg in node.args.args
+                arg.arg for arg in node.args.posonlyargs
+                + node.args.args
+                + node.args.kwonlyargs
             ],
             "class": self.current_class
         }
@@ -53,36 +82,56 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.functions.append(function_info)
 
         previous_function = self.current_function
+        previous_line = self.current_function_line
+
         self.current_function = node.name
+        self.current_function_line = node.lineno
 
         self.generic_visit(node)
 
         self.current_function = previous_function
-
-    def visit_AsyncFunctionDef(self, node):
-        self.visit_FunctionDef(node)
+        self.current_function_line = previous_line
 
     def visit_Call(self, node):
-
         call_name = None
+        call_type = None
+        call_expression = None
+        receiver = None
+
+        try:
+            call_expression = ast.unparse(node.func)
+        except Exception:
+            call_expression = None
 
         if isinstance(node.func, ast.Name):
             call_name = node.func.id
+            call_type = "direct"
 
         elif isinstance(node.func, ast.Attribute):
             call_name = node.func.attr
+            call_type = "attribute"
+
+            try:
+                receiver = ast.unparse(node.func.value)
+            except Exception:
+                receiver = None
 
         if call_name:
             self.calls.append({
                 "name": call_name,
-                "called_from": self.current_function
+                "called_from": self.current_function,
+                "called_from_line": self.current_function_line,
+                "called_from_class": self.current_class,
+                "line": node.lineno,
+                "call_type": call_type,
+                "expression": call_expression,
+                "receiver": receiver
             })
 
         self.generic_visit(node)
 
 
 def analyze_python_file(file_path):
-
     result = {
         "file": file_path,
         "imports": [],
@@ -92,7 +141,6 @@ def analyze_python_file(file_path):
     }
 
     try:
-
         with open(file_path, "r", encoding="utf-8") as file:
             source_code = file.read()
 
@@ -102,23 +150,30 @@ def analyze_python_file(file_path):
         analyzer.visit(tree)
 
         result["imports"] = analyzer.imports
+        result["import_details"] = analyzer.import_details
         result["classes"] = analyzer.classes
         result["functions"] = analyzer.functions
         result["calls"] = analyzer.calls
 
     except Exception as error:
-
         result["error"] = str(error)
 
     return result
 
 
 def analyze_repository(repository_path):
+    from analyzer.parsers.python_parser import PythonParser
+    from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+
+    parsers = {
+        ".py": PythonParser(),
+        ".js": TreeSitterParser("javascript"),
+        ".ts": TreeSitterParser("typescript"),
+    }
 
     results = []
 
     for root, dirs, files in os.walk(repository_path):
-
         dirs[:] = [
             d for d in dirs
             if d not in {
@@ -131,53 +186,39 @@ def analyze_repository(repository_path):
         ]
 
         for filename in files:
+            extension = os.path.splitext(filename)[1].lower()
 
-            if filename.endswith(".py"):
+            if extension not in parsers:
+                continue
 
-                file_path = os.path.join(root, filename)
+            file_path = os.path.join(root, filename)
 
-                analysis = analyze_python_file(file_path)
+            parser = parsers[extension]
+            result = parser.parse_file(file_path)
 
-                results.append(analysis)
+            results.append(result)
 
     return results
 
-
 def main():
-
     if len(sys.argv) != 2:
-
         print(
             "Usage: python repository_analyzer.py <repository_path>"
         )
-
         sys.exit(1)
 
     repository_path = sys.argv[1]
 
     if not os.path.isdir(repository_path):
-
-        print(
-            f"Repository not found: {repository_path}"
-        )
-
+        print(f"Repository not found: {repository_path}")
         sys.exit(1)
 
     results = analyze_repository(repository_path)
 
     output_file = "analysis.json"
 
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            results,
-            file,
-            indent=2
-        )
+    with open(output_file, "w", encoding="utf-8") as file:
+        json.dump(results, file, indent=2)
 
     print("Repository analyzed successfully.")
     print(f"Python files found: {len(results)}")
