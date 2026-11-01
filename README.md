@@ -6,7 +6,7 @@ ArchLens analyzes source repositories, builds an architecture graph, indexes cod
 
 ## Language support
 
-ArchLens uses Python's AST for Python, the official TypeScript compiler API for JavaScript/JSX/TypeScript/TSX, and Tree-sitter grammars for the other configured languages.
+ArchLens uses Python's AST for Python, the official TypeScript compiler API for JavaScript/JSX/TypeScript/TSX, and Tree-sitter WebAssembly grammars for the other configured languages.
 
 | Language | File extensions | Current support |
 |---|---|---|
@@ -25,7 +25,7 @@ ArchLens uses Python's AST for Python, the official TypeScript compiler API for 
 | Kotlin | `.kt`, `.kts` | Generic syntax analysis and chunks |
 | Swift | `.swift` | Generic syntax analysis and chunks |
 
-**Support-level note:** JavaScript/TypeScript parsing is performed by the TypeScript compiler API through Node.js; it no longer uses the native Tree-sitter Python binding. Java, C#, Go, C, C++, Rust, PHP, Ruby, Kotlin, and Swift use the generic Tree-sitter adapter, which currently extracts common declarations and imports. Generic-language parsing is not yet complete language-specific semantic analysis. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
+**Support-level note:** JavaScript/TypeScript parsing is performed by the TypeScript compiler API through Node.js; it no longer uses the native Tree-sitter Python binding. Java, C#, Go, C, C++, Rust, PHP, Ruby, Kotlin, and Swift use the Tree-sitter WebAssembly adapter, which currently extracts common declarations and imports. Generic-language parsing is not yet complete language-specific semantic analysis. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
 
 ## Core capabilities
 
@@ -52,7 +52,7 @@ Language / Extension Registry
        |
        +--> TypeScript compiler API (JS / JSX / TS / TSX)
        |
-       +--> Tree-sitter Parsers (Java / C# / Go / C / C++ / Rust / PHP / Ruby / Kotlin / Swift)
+       +--> Tree-sitter WASM Parsers (Java / C# / Go / C / C++ / Rust / PHP / Ruby / Kotlin / Swift)
        |
        v
 Normalized Analysis Records
@@ -82,7 +82,7 @@ Normalized Analysis Records
 - Python, FastAPI
 - Python AST
 - TypeScript compiler API (Node.js)
-- Tree-sitter Language Pack
+- Tree-sitter WebAssembly
 - ChromaDB
 - Ollama
 - `nomic-embed-text` embeddings
@@ -91,7 +91,7 @@ Normalized Analysis Records
 
 ## Run locally
 
-Install dependencies (Node.js 18+ is required for JavaScript/TypeScript/JSX/TSX parsing):
+Install dependencies (Node.js 18+ is required for JavaScript/TypeScript/JSX/TSX and WebAssembly-based language parsing):
 
 ```bash
 npm install
@@ -136,7 +136,7 @@ The report includes parse success rate, files and declarations by language, chun
 
 ## Current limitations
 
-- Generic parser support is not equivalent to production-grade semantic analysis for every language. JavaScript/TypeScript uses the TypeScript compiler AST; other non-Python languages still use generic Tree-sitter extraction.
+- WASM grammar parsing is isolated from Python's native bindings, but extraction remains conservative and is not production-grade semantic analysis for every language. JavaScript/TypeScript uses the TypeScript compiler AST; other non-Python languages still use generic Tree-sitter extraction.
 - Cross-file inheritance and interface implementation are resolved only when a referenced symbol has one unique definition; ambiguous matches are reported rather than guessed.
 - Python and JavaScript/TypeScript import-to-class links remain limited to the import forms currently extracted by their parsers.
 - Cross-file call resolution currently supports Python `from ... import ...` function/class aliases and JavaScript/TypeScript relative named imports for functions and class-qualified methods.
