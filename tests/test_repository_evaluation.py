@@ -48,7 +48,7 @@ def test_evaluation_report_counts_parse_errors_chunks_and_cross_language_edges()
 
 def test_evaluate_repository_on_small_mixed_language_fixture(tmp_path):
     (tmp_path / "main.py").write_text(
-        "def main():\\n    return 1\\n", encoding="utf-8"
+        "def main():\n    return 1\n", encoding="utf-8"
     )
     (tmp_path / "Service.java").write_text(
         "class Service { int run() { return 1; } }", encoding="utf-8"
