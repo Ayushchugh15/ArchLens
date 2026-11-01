@@ -38,7 +38,7 @@ def _snapshot_tree(root_node):
 
         if current.goto_first_child():
             while True:
-                field_name = current.current_field_name
+                field_name = current.field_name
                 child = copy_cursor(current.copy())
                 child.parent = copied
                 copied.children.append(child)
