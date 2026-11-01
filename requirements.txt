@@ -3,5 +3,3 @@ uvicorn
 chromadb
 requests
 GitPython
-tree-sitter
-tree-sitter-language-pack
