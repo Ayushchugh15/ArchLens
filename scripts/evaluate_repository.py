@@ -154,7 +154,7 @@ def main():
     report = evaluate_repository(args.repository)
     rendered = json.dumps(report, indent=2)
     if args.output:
-        Path(args.output).write_text(rendered + "\\n", encoding="utf-8")
+        Path(args.output).write_text(rendered + "\n", encoding="utf-8")
         print(f"Evaluation report saved to: {args.output}")
     else:
         print(rendered)
