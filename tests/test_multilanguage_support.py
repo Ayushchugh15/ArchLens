@@ -459,3 +459,41 @@ def test_java_only_repository_can_be_analyzed_graphed_and_chunked(tmp_path):
     assert any(node.get("language") == "java" for node in graph["nodes"])
     assert chunks
     assert {chunk["metadata"]["language"] for chunk in chunks} == {"java"}
+
+
+
+def test_java_only_repository_uses_wasm_parser_without_python(tmp_path):
+    from analyzer.build_graph import build_graph
+    import json
+
+    (tmp_path / "UserService.java").write_text(
+        "package demo;\n"
+        "import java.util.List;\n"
+        "public class UserService {\n"
+        "  public User findUser(int id) { return new User(); }\n"
+        "}\n"
+        "class User { }\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert len(analysis) == 1
+    assert analysis[0]["language"] == "java"
+    assert not analysis[0].get("error"), analysis[0].get("error")
+    assert any(item["name"] == "UserService" for item in analysis[0]["classes"])
+    assert any(item["name"] == "findUser" for item in analysis[0]["functions"])
+    assert analysis[0]["imports"]
+
+    chunks = create_chunks(str(tmp_path))
+    assert any(
+        chunk["metadata"]["language"] == "java"
+        and chunk["metadata"]["type"] == "class"
+        and chunk["metadata"]["name"] == "UserService"
+        for chunk in chunks
+    )
+    assert any(chunk["metadata"]["type"] == "file" for chunk in chunks)
+
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_file))
+    assert any(node.get("label") == "UserService" for node in graph["nodes"])
