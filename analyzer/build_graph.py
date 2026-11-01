@@ -554,6 +554,32 @@ def build_graph(analysis_file):
                 ):
                     function_imports[local_name] = (target_record, symbol)
 
+        # Track simple Python variable assignments such as
+        # service = UserService() within the same function/class scope.
+        instance_bindings = {}
+        for instance in item.get("instantiations", []):
+            variable = instance.get("variable")
+            class_name = instance.get("class_name")
+            if not variable or not class_name:
+                continue
+
+            class_target = class_imports.get(class_name)
+            if class_target:
+                target_record, class_symbol = class_target
+            else:
+                target_record = item
+                class_symbol = class_name
+
+            if (target_record["file"], class_symbol) not in class_nodes:
+                continue
+
+            key = (
+                instance.get("scope_function"),
+                instance.get("scope_class"),
+                variable,
+            )
+            instance_bindings[key] = (target_record, class_symbol)
+
         for call in item.get("calls", []):
             called_name = call.get("name")
             called_from = call.get("called_from")
@@ -623,7 +649,18 @@ def build_graph(analysis_file):
             elif call_type == "attribute" and receiver:
                 # Class-qualified calls can be resolved through imported class aliases.
                 class_binding = class_imports.get(receiver)
-                if class_binding:
+                instance_binding = instance_bindings.get((
+                    called_from, caller_class, receiver
+                ))
+                if instance_binding:
+                    target_record, class_symbol = instance_binding
+                    target_candidates = [
+                        candidate for candidate in function_nodes.get(called_name, [])
+                        if candidate["file"] == target_record["file"]
+                        and candidate["class"] == class_symbol
+                    ]
+                    resolution = "instance_method"
+                elif class_binding:
                     target_record, class_symbol = class_binding
                     target_candidates = [
                         candidate for candidate in function_nodes.get(called_name, [])

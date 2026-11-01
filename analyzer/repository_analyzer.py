@@ -12,6 +12,7 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.functions = []
         self.calls = []
         self.import_details = []
+        self.instantiations = []
 
 
         self.current_class = None
@@ -92,6 +93,39 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.current_function = previous_function
         self.current_function_line = previous_line
 
+    def _record_instantiation(self, target, value, line):
+        if not isinstance(value, ast.Call):
+            return
+        if isinstance(value.func, ast.Name):
+            class_name = value.func.id
+        elif isinstance(value.func, ast.Attribute):
+            try:
+                class_name = ast.unparse(value.func)
+            except Exception:
+                return
+        else:
+            return
+        if not isinstance(target, ast.Name):
+            return
+        if not hasattr(self, "instantiations"):
+            self.instantiations = []
+        self.instantiations.append({
+            "variable": target.id,
+            "class_name": class_name,
+            "line": line,
+            "scope_function": self.current_function,
+            "scope_class": self.current_class,
+        })
+
+    def visit_Assign(self, node):
+        for target in node.targets:
+            self._record_instantiation(target, node.value, node.lineno)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node):
+        self._record_instantiation(node.target, node.value, node.lineno)
+        self.generic_visit(node)
+
     def visit_Call(self, node):
         call_name = None
         call_type = None
@@ -154,6 +188,7 @@ def analyze_python_file(file_path):
         result["classes"] = analyzer.classes
         result["functions"] = analyzer.functions
         result["calls"] = analyzer.calls
+        result["instantiations"] = analyzer.instantiations
 
     except Exception as error:
         result["error"] = str(error)
