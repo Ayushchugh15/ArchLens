@@ -211,7 +211,7 @@ def analyze_repository(repository_path):
             return None
         if language == "python":
             return python_parser
-        if language in {"javascript", "typescript"}:
+        if language in {"javascript", "typescript", "tsx"}:
             key = language
             if key not in parser_cache:
                 parser_cache[key] = TreeSitterParser(language)
