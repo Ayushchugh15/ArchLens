@@ -42,7 +42,7 @@ function makeResult(file, language) {
   return {
     file, language, imports: [], import_details: [], classes: [],
     interfaces: [], functions: [], calls: [], inheritance: [],
-    implementations: [], typed_fields: [], declaration_chunks: []
+    implementations: [], typed_fields: [], typed_variables: [], declaration_chunks: []
   };
 }
 
@@ -145,8 +145,14 @@ async function main() {
       let currentFunctionLine = enclosingFunctionLine;
       if (FUNCTION_NODES.has(type)) {
         const name = getName(node, source) || "<anonymous>";
+        const parametersNode = node.childForFieldName("parameters");
+        const parameterCount = parametersNode
+          ? (parametersNode.namedChildren || []).filter(child =>
+              ["formal_parameter", "spread_parameter", "receiver_parameter", "parameter"].includes(child.type)).length
+          : null;
         result.functions.push({
-          name, line, arguments: [], class: currentClass
+          name, line, arguments: [], class: currentClass,
+          parameter_count: parameterCount
         });
         result.declaration_chunks.push({
           code: nodeText(node, source), type: "function", name,
@@ -177,14 +183,33 @@ async function main() {
 
       if (language === "java" && type === "field_declaration") {
         const fieldType = node.childForFieldName("type");
-        const declarator = node.childForFieldName("declarator");
-        if (fieldType && declarator) {
-          const fieldName = getName(declarator, source);
-          const declaredType = nodeText(fieldType, source).replace(/<.*>$/, "").trim();
-          if (fieldName && declaredType && /^[A-Za-z_$][\w$]*$/.test(declaredType)) {
-            result.typed_fields.push({
-              class: currentClass, name: fieldName, type: declaredType, line
-            });
+        const declarators = (node.namedChildren || []).filter(child => child.type === "variable_declarator");
+        const declaredType = fieldType ? nodeText(fieldType, source).replace(/<.*>$/, "").trim() : "";
+        if (declaredType && /^[A-Za-z_$][\w$]*$/.test(declaredType)) {
+          for (const declarator of declarators) {
+            const fieldName = getName(declarator, source);
+            if (fieldName) result.typed_fields.push({ class: currentClass, name: fieldName, type: declaredType, line });
+          }
+        }
+      }
+
+      if (language === "java" && type === "formal_parameter" && currentFunction) {
+        const typeNode = node.childForFieldName("type");
+        const nameNode = node.childForFieldName("name");
+        const declaredType = typeNode ? nodeText(typeNode, source).replace(/<.*>$/, "").trim() : "";
+        const variableName = nameNode ? nodeText(nameNode, source).trim() : "";
+        if (variableName && declaredType && /^[A-Za-z_$][\w$]*$/.test(declaredType)) {
+          result.typed_variables.push({ class: currentClass, function: currentFunction, name: variableName, type: declaredType, line });
+        }
+      }
+
+      if (language === "java" && type === "local_variable_declaration" && currentFunction) {
+        const typeNode = node.childForFieldName("type");
+        const declaredType = typeNode ? nodeText(typeNode, source).replace(/<.*>$/, "").trim() : "";
+        if (declaredType && /^[A-Za-z_$][\w$]*$/.test(declaredType)) {
+          for (const declarator of (node.namedChildren || []).filter(child => child.type === "variable_declarator")) {
+            const variableName = getName(declarator, source);
+            if (variableName) result.typed_variables.push({ class: currentClass, function: currentFunction, name: variableName, type: declaredType, line });
           }
         }
       }
@@ -192,8 +217,10 @@ async function main() {
       if (language === "java" && type === "method_invocation") {
         const nameNode = node.childForFieldName("name");
         const objectNode = node.childForFieldName("object");
+        const argumentsNode = node.childForFieldName("arguments");
         const name = nameNode ? nodeText(nameNode, source).trim() : null;
         const receiver = objectNode ? nodeText(objectNode, source).trim() : null;
+        const argumentCount = argumentsNode ? (argumentsNode.namedChildren || []).length : null;
         if (name && currentFunction) {
           result.calls.push({
             name, called_from: currentFunction,
@@ -201,7 +228,8 @@ async function main() {
             called_from_class: currentClass, line,
             call_type: receiver ? "attribute" : "direct",
             expression: nodeText(node, source),
-            receiver: receiver || null
+            receiver: receiver || null,
+            argument_count: argumentCount
           });
         }
       }
