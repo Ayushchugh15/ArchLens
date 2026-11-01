@@ -1,9 +1,7 @@
 """Conservative Tree-sitter adapter for additional supported languages."""
 
 from pathlib import Path
-
 from tree_sitter_language_pack import get_parser
-
 from analyzer.parsers.base_parser import BaseParser
 
 
@@ -24,6 +22,10 @@ FUNCTION_NODES = {
     "method_definition", "method_declaration", "constructor_declaration",
     "function_definition", "function_item", "method", "singleton_method",
 }
+IMPORT_NODES = {
+    "import_declaration", "using_directive", "preproc_include",
+    "use_declaration", "namespace_use_declaration",
+}
 
 
 class GenericTreeSitterParser(BaseParser):
@@ -34,16 +36,10 @@ class GenericTreeSitterParser(BaseParser):
     def parse_file(self, file_path: str) -> dict:
         path = Path(file_path)
         result = {
-            "file": str(path),
-            "language": self.language,
-            "imports": [],
-            "import_details": [],
-            "classes": [],
-            "interfaces": [],
-            "functions": [],
-            "calls": [],
-            "inheritance": [],
-            "implementations": [],
+            "file": str(path), "language": self.language,
+            "imports": [], "import_details": [], "classes": [],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [], "implementations": [],
         }
 
         try:
@@ -72,6 +68,20 @@ class GenericTreeSitterParser(BaseParser):
             def visit(node, enclosing_class=None):
                 node_type = node.type
                 line = node.start_point.row + 1
+
+                if node_type in IMPORT_NODES:
+                    import_text = node_text(node).strip()
+                    if import_text:
+                        result["imports"].append(import_text)
+                        result["import_details"].append({
+                            "type": "import",
+                            "module": import_text,
+                            "name": None,
+                            "alias": None,
+                            "import_kind": "statement",
+                            "line": line,
+                            "level": 0,
+                        })
 
                 if node_type in CLASS_NODES:
                     name = node_name(node)
