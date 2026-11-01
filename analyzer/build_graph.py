@@ -511,6 +511,21 @@ def build_graph(analysis_file):
         unique = {record["file"]: record for record in matches}
         return next(iter(unique.values())) if len(unique) == 1 else None
 
+    # Java V2: match declared receiver types to project-owned types. A type
+    # name must be unique; otherwise leave the call unresolved.
+    java_types = defaultdict(list)
+    for (owner_file, owner_name), owner_id in {**class_nodes, **interface_nodes}.items():
+        java_types[owner_name].append(owner_file)
+
+    def java_owner_methods(type_name, method_name):
+        if not type_name or len(set(java_types.get(type_name, []))) != 1:
+            return []
+        owner_file = java_types[type_name][0]
+        return [
+            candidate for candidate in function_nodes.get(method_name, [])
+            if candidate["file"] == owner_file and candidate["class"] == type_name
+        ]
+
     resolved_calls = 0
     unresolved_calls = 0
     unresolved_reasons = defaultdict(int)
@@ -655,20 +670,20 @@ def build_graph(analysis_file):
                 if receiver in {"this", "super"} and caller_class:
                     target_owner = caller_class
                 else:
+                    # Both 'repository.findById()' and
+                    # 'this.repository.findById()' refer to a typed field.
+                    field_receiver = receiver.removeprefix("this.") if receiver else ""
                     matching_fields = [
                         field for field in item.get("typed_fields", [])
                         if field.get("class") == caller_class
-                        and field.get("name") == receiver
+                        and field.get("name") == field_receiver
                     ]
                     field_types = {field.get("type") for field in matching_fields}
                     if len(field_types) == 1:
                         target_owner = next(iter(field_types))
 
                 if target_owner:
-                    owner_candidates = [
-                        candidate for candidate in function_nodes.get(called_name, [])
-                        if candidate["class"] == target_owner
-                    ]
+                    owner_candidates = java_owner_methods(target_owner, called_name)
                     if len(owner_candidates) == 1:
                         target_candidates = owner_candidates
                         resolution = "java_typed_field" if receiver not in {"this", "super"} else "java_same_class"
