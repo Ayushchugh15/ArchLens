@@ -466,10 +466,12 @@ def build_graph(analysis_file):
 
             if class_name:
                 class_id = class_nodes.get((file_path, class_name))
+                interface_id = interface_nodes.get((file_path, class_name))
 
-                if class_id:
+                owner_id = class_id or interface_id
+                if owner_id:
                     edges.append({
-                        "source": class_id,
+                        "source": owner_id,
                         "target": function_id,
                         "relationship": "contains",
                     })
@@ -645,6 +647,33 @@ def build_graph(analysis_file):
                         if candidate["file"] == file_path
                         and candidate["class"] == caller_class
                     ]
+
+            elif call_type == "attribute" and receiver and item.get("language") == "java":
+                # Resolve Java calls only through an explicitly typed field or
+                # an explicit this/super receiver. Never infer from method name alone.
+                target_owner = None
+                if receiver in {"this", "super"} and caller_class:
+                    target_owner = caller_class
+                else:
+                    matching_fields = [
+                        field for field in item.get("typed_fields", [])
+                        if field.get("class") == caller_class
+                        and field.get("name") == receiver
+                    ]
+                    field_types = {field.get("type") for field in matching_fields}
+                    if len(field_types) == 1:
+                        target_owner = next(iter(field_types))
+
+                if target_owner:
+                    owner_candidates = [
+                        candidate for candidate in function_nodes.get(called_name, [])
+                        if candidate["class"] == target_owner
+                    ]
+                    if len(owner_candidates) == 1:
+                        target_candidates = owner_candidates
+                        resolution = "java_typed_field" if receiver not in {"this", "super"} else "java_same_class"
+                    elif len(owner_candidates) > 1:
+                        target_candidates = owner_candidates
 
             elif call_type == "attribute" and receiver:
                 # Class-qualified calls can be resolved through imported class aliases.
