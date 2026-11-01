@@ -591,3 +591,54 @@ def test_java_this_field_call_resolves_to_declared_interface(tmp_path):
     ]
     assert len(matches) == 1
     assert "OwnerRepository.java" in matches[0]["target"]
+
+
+def test_java_typed_parameters_and_locals_resolve_calls_with_overloads(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "Owner.java").write_text(
+        "class Owner {\\n"
+        "  Pet getPet(int id) { return null; }\\n"
+        "  Pet getPet(String name) { return null; }\\n"
+        "  void addVisit(int id, Visit visit) {}\\n"
+        "}\\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Pet.java").write_text(
+        "class Pet { void addVisit(Visit visit) {} }\\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Visit.java").write_text(
+        "class Visit {}\\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "VisitController.java").write_text(
+        "class VisitController {\\n"
+        "  void load(Owner owner, int petId, Visit visit) {\\n"
+        "    Pet pet = owner.getPet(petId);\\n"
+        "    pet.addVisit(visit);\\n"
+        "    owner.addVisit(petId, visit);\\n"
+        "  }\\n"
+        "}\\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not item.get("error") for item in analysis), analysis
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+
+    calls = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(calls) == 3
+    assert graph["call_resolution"]["resolved_calls"] == 3
+    assert not [
+        detail for detail in graph["unresolved_call_details"]
+        if detail["target"] in {"getPet", "addVisit"}
+    ]
