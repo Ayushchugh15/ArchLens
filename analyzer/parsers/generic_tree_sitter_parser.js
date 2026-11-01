@@ -42,7 +42,7 @@ function makeResult(file, language) {
   return {
     file, language, imports: [], import_details: [], classes: [],
     interfaces: [], functions: [], calls: [], inheritance: [],
-    implementations: [], declaration_chunks: []
+    implementations: [], typed_fields: [], declaration_chunks: []
   };
 }
 
@@ -110,7 +110,7 @@ async function main() {
     const hasParseErrors = typeof root.hasError === "function" ? root.hasError() : root.hasError;
     if (hasParseErrors) result.parse_errors = true;
 
-    function visit(node, enclosingClass = null) {
+    function visit(node, enclosingClass = null, enclosingFunction = null, enclosingFunctionLine = null) {
       const type = node.type;
       const line = (node.startPosition?.row ?? 0) + 1;
       const endLine = (node.endPosition?.row ?? 0) + 1;
@@ -141,6 +141,8 @@ async function main() {
         }
       }
 
+      let currentFunction = enclosingFunction;
+      let currentFunctionLine = enclosingFunctionLine;
       if (FUNCTION_NODES.has(type)) {
         const name = getName(node, source) || "<anonymous>";
         result.functions.push({
@@ -150,10 +152,62 @@ async function main() {
           code: nodeText(node, source), type: "function", name,
           class_name: currentClass, line, end_line: endLine
         });
+        currentFunction = name;
+        currentFunctionLine = line;
+      }
+
+      // Java declarations expose enough structure to resolve conservative
+      // inheritance, implementation and field-typed method-call relationships.
+      if (language === "java" && type === "class_declaration") {
+        const superclass = node.childForFieldName("superclass");
+        if (superclass) {
+          const parent = nodeText(superclass, source).replace(/^extends\\s+/, "").trim();
+          if (parent) result.inheritance.push({ class: getName(node, source), parent, line });
+        }
+        const interfaces = node.childForFieldName("interfaces");
+        if (interfaces) {
+          for (const child of interfaces.namedChildren || []) {
+            const interfaceName = nodeText(child, source).trim();
+            if (interfaceName) result.implementations.push({
+              class: getName(node, source), interface: interfaceName, line
+            });
+          }
+        }
+      }
+
+      if (language === "java" && type === "field_declaration") {
+        const fieldType = node.childForFieldName("type");
+        const declarator = node.childForFieldName("declarator");
+        if (fieldType && declarator) {
+          const fieldName = getName(declarator, source);
+          const declaredType = nodeText(fieldType, source).replace(/<.*>$/, "").trim();
+          if (fieldName && declaredType && /^[A-Za-z_$][\\w$]*$/.test(declaredType)) {
+            result.typed_fields.push({
+              class: currentClass, name: fieldName, type: declaredType, line
+            });
+          }
+        }
+      }
+
+      if (language === "java" && type === "method_invocation") {
+        const nameNode = node.childForFieldName("name");
+        const objectNode = node.childForFieldName("object");
+        const name = nameNode ? nodeText(nameNode, source).trim() : null;
+        const receiver = objectNode ? nodeText(objectNode, source).trim() : null;
+        if (name && currentFunction) {
+          result.calls.push({
+            name, called_from: currentFunction,
+            called_from_line: currentFunctionLine,
+            called_from_class: currentClass, line,
+            call_type: receiver ? "attribute" : "direct",
+            expression: nodeText(node, source),
+            receiver: receiver || null
+          });
+        }
       }
 
       for (const child of node.namedChildren || []) {
-        visit(child, currentClass);
+        visit(child, currentClass, currentFunction, currentFunctionLine);
       }
     }
 
