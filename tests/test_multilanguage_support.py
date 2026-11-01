@@ -561,3 +561,33 @@ def test_java_parser_extracts_implementations_typed_fields_and_method_calls(tmp_
     assert len(implementation_edges) == 1
     assert len(call_edges) == 1
     assert graph["call_resolution"]["resolved_calls"] == 1
+
+
+def test_java_this_field_call_resolves_to_declared_interface(tmp_path):
+    import json
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "OwnerRepository.java").write_text(
+        "interface OwnerRepository { Object findById(int id); }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "OwnerController.java").write_text(
+        "class OwnerController {\n"
+        "  private OwnerRepository owners;\n"
+        "  Object showOwner(int id) { return this.owners.findById(id); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not record.get("error") for record in analysis), analysis
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+    matches = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and "findById" in edge.get("call_expression", "")
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(matches) == 1
+    assert "OwnerRepository.java" in matches[0]["target"]
