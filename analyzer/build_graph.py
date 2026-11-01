@@ -449,6 +449,7 @@ def build_graph(analysis_file):
                 "file": file_path,
                 "class": class_name,
                 "line": line,
+                "parameter_count": function.get("parameter_count"),
             }
 
             function_nodes[function_name].append(function_info)
@@ -517,14 +518,27 @@ def build_graph(analysis_file):
     for (owner_file, owner_name), owner_id in {**class_nodes, **interface_nodes}.items():
         java_types[owner_name].append(owner_file)
 
-    def java_owner_methods(type_name, method_name):
+    def java_owner_methods(type_name, method_name, argument_count=None):
         if not type_name or len(set(java_types.get(type_name, []))) != 1:
             return []
         owner_file = java_types[type_name][0]
-        return [
+        candidates = [
             candidate for candidate in function_nodes.get(method_name, [])
             if candidate["file"] == owner_file and candidate["class"] == type_name
         ]
+        if argument_count is not None:
+            arity_matches = [
+                candidate for candidate in candidates
+                if candidate.get("parameter_count") == argument_count
+            ]
+            if arity_matches:
+                return arity_matches
+            if candidates and all(
+                candidate.get("parameter_count") is not None
+                for candidate in candidates
+            ):
+                return []
+        return candidates
 
     resolved_calls = 0
     unresolved_calls = 0
@@ -679,11 +693,21 @@ def build_graph(analysis_file):
                         and field.get("name") == field_receiver
                     ]
                     field_types = {field.get("type") for field in matching_fields}
-                    if len(field_types) == 1:
-                        target_owner = next(iter(field_types))
+                    variable_fields = [
+                        variable for variable in item.get("typed_variables", [])
+                        if variable.get("class") == caller_class
+                        and variable.get("function") == called_from
+                        and variable.get("name") == field_receiver
+                    ]
+                    variable_types = {variable.get("type") for variable in variable_fields}
+                    all_receiver_types = field_types | variable_types
+                    if len(all_receiver_types) == 1:
+                        target_owner = next(iter(all_receiver_types))
 
                 if target_owner:
-                    owner_candidates = java_owner_methods(target_owner, called_name)
+                    owner_candidates = java_owner_methods(
+                        target_owner, called_name, call.get("argument_count")
+                    )
                     if len(owner_candidates) == 1:
                         target_candidates = owner_candidates
                         resolution = "java_typed_field" if receiver not in {"this", "super"} else "java_same_class"
