@@ -393,3 +393,252 @@ def test_repository_analyzer_skips_unsupported_file_extensions(tmp_path):
     assert results[0]["language"] == "python"
     assert not results[0].get("error")
     assert results[0]["file"].endswith("main.py")
+
+
+
+def test_javascript_typescript_parser_uses_compiler_ast_and_extracts_structure():
+    from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+
+    javascript = TreeSitterParser("javascript").parse_file(
+        "tests/fixtures/sample.js"
+    )
+    typescript = TreeSitterParser("typescript").parse_file(
+        "tests/fixtures/sample.ts"
+    )
+
+    assert not javascript.get("error"), javascript.get("error")
+    assert not typescript.get("error"), typescript.get("error")
+    assert any(item["name"] == "UserService" for item in javascript["classes"])
+    assert any(item["name"] == "greet" for item in javascript["functions"])
+    assert any(item["name"] == "UserService" for item in typescript["classes"])
+    assert any(item["name"] == "User" for item in typescript["interfaces"])
+    assert any(item["parent"] == "UserService" for item in typescript["inheritance"])
+    assert any(item["interface"] == "Admin" for item in typescript["implementations"])
+    assert javascript["declaration_chunks"]
+    assert typescript["declaration_chunks"]
+
+
+def test_javascript_parser_handles_full_frontend_app_without_native_treesitter():
+    from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+
+    parsed = TreeSitterParser("javascript").parse_file("frontend/app.js")
+
+    assert not parsed.get("error"), parsed.get("error")
+    assert parsed["functions"]
+    assert parsed["calls"]
+    assert parsed["declaration_chunks"]
+
+
+def test_java_only_repository_can_be_analyzed_graphed_and_chunked(tmp_path):
+    import json
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "Main.java").write_text(
+        "package demo;\n"
+        "interface Repository { String find(int id); }\n"
+        "class UserRepository implements Repository {\n"
+        "  public String find(int id) { return lookup(id); }\n"
+        "  private String lookup(int id) { return \"user\"; }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert len(analysis) == 1
+    assert analysis[0]["language"] == "java"
+    assert not analysis[0].get("error")
+    assert analysis[0]["classes"]
+    assert analysis[0]["functions"]
+
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+    chunks = create_chunks(str(tmp_path))
+
+    assert graph["nodes"]
+    assert any(node.get("language") == "java" for node in graph["nodes"])
+    assert chunks
+    assert {chunk["metadata"]["language"] for chunk in chunks} == {"java"}
+
+
+
+def test_java_only_repository_uses_wasm_parser_without_python(tmp_path):
+    from analyzer.build_graph import build_graph
+    import json
+
+    (tmp_path / "UserService.java").write_text(
+        "package demo;\n"
+        "import java.util.List;\n"
+        "public class UserService {\n"
+        "  public User findUser(int id) { return new User(); }\n"
+        "}\n"
+        "class User { }\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert len(analysis) == 1
+    assert analysis[0]["language"] == "java"
+    assert not analysis[0].get("error"), analysis[0].get("error")
+    assert any(item["name"] == "UserService" for item in analysis[0]["classes"])
+    assert any(item["name"] == "findUser" for item in analysis[0]["functions"])
+    assert analysis[0]["imports"]
+
+    chunks = create_chunks(str(tmp_path))
+    assert any(
+        chunk["metadata"]["language"] == "java"
+        and chunk["metadata"]["type"] == "class"
+        and chunk["metadata"]["name"] == "UserService"
+        for chunk in chunks
+    )
+    assert any(chunk["metadata"]["type"] == "file" for chunk in chunks)
+
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_file))
+    assert any(node.get("label") == "UserService" for node in graph["nodes"])
+
+
+def test_java_parser_extracts_implementations_typed_fields_and_method_calls(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "Repository.java").write_text(
+        "package demo;\n"
+        "interface Repository { Object findById(int id); }\n"
+        "class JpaRepository implements Repository {\n"
+        "  public Object findById(int id) { return null; }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "OwnerController.java").write_text(
+        "package demo;\n"
+        "class OwnerController {\n"
+        "  private Repository repository;\n"
+        "  public Object showOwner(int id) { return repository.findById(id); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not item.get("error") for item in analysis), analysis
+
+    repository_record = next(
+        item for item in analysis if item["file"].endswith("Repository.java")
+    )
+    controller_record = next(
+        item for item in analysis if item["file"].endswith("OwnerController.java")
+    )
+
+    assert {
+        "class": "JpaRepository", "interface": "Repository", "line": 3
+    } in repository_record["implementations"]
+    assert {
+        "class": "OwnerController", "name": "repository",
+        "type": "Repository", "line": 3
+    } in controller_record["typed_fields"]
+    assert any(
+        call["name"] == "findById"
+        and call["receiver"] == "repository"
+        and call["called_from"] == "showOwner"
+        for call in controller_record["calls"]
+    )
+
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+
+    implementation_edges = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "implements"
+    ]
+    call_edges = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(implementation_edges) == 1
+    assert len(call_edges) == 1
+    assert graph["call_resolution"]["resolved_calls"] == 1
+
+
+def test_java_this_field_call_resolves_to_declared_interface(tmp_path):
+    import json
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "OwnerRepository.java").write_text(
+        "interface OwnerRepository { Object findById(int id); }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "OwnerController.java").write_text(
+        "class OwnerController {\n"
+        "  private OwnerRepository owners;\n"
+        "  Object showOwner(int id) { return this.owners.findById(id); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not record.get("error") for record in analysis), analysis
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+    matches = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and "findById" in edge.get("call_expression", "")
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(matches) == 1
+    assert "OwnerRepository.java" in matches[0]["target"]
+
+
+def test_java_typed_parameters_and_locals_resolve_calls_with_overloads(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "Owner.java").write_text(
+        "class Owner {\n"
+        "  Pet getPet(int id) { return null; }\n"
+        "  Pet getPet(String name) { return null; }\n"
+        "  void addVisit(int id, Visit visit) {}\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Pet.java").write_text(
+        "class Pet { void addVisit(Visit visit) {} }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Visit.java").write_text(
+        "class Visit {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "VisitController.java").write_text(
+        "class VisitController {\n"
+        "  void load(Owner owner, int petId, Visit visit) {\n"
+        "    Pet pet = owner.getPet(petId);\n"
+        "    pet.addVisit(visit);\n"
+        "    owner.addVisit(petId, visit);\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not item.get("error") for item in analysis), analysis
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+
+    calls = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(calls) == 3
+    assert graph["call_resolution"]["resolved_calls"] == 3
+    assert not [
+        detail for detail in graph["unresolved_call_details"]
+        if detail["target"] in {"getPet", "addVisit"}
+    ]

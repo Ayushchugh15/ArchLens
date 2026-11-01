@@ -4,27 +4,15 @@ import os
 import sys
 from pathlib import Path
 
-from tree_sitter_language_pack import get_parser
 
 from analyzer.language_support import LANGUAGE_BY_EXTENSION
+from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+from analyzer.parsers.generic_tree_sitter_parser import GenericTreeSitterParser
 
 
 IGNORE_DIRS = {
     ".git", "__pycache__", "venv", ".venv", "node_modules",
     "vendor", "dist", "build", "target", ".next",
-}
-
-DECLARATION_TYPES = {
-    "class_declaration", "interface_declaration", "enum_declaration",
-    "record_declaration", "struct_declaration", "type_declaration",
-    "type_spec", "struct_specifier", "class_specifier",
-    "function_declaration", "generator_function_declaration",
-    "method_definition", "method_declaration", "constructor_declaration",
-    "function_definition", "function_item", "struct_item", "enum_item",
-    "trait_item", "impl_item", "mod_item", "trait_declaration",
-    "class", "module", "method", "singleton_method",
-    "object_declaration", "protocol_declaration", "enum_specifier",
-    "namespace_definition",
 }
 
 
@@ -75,74 +63,6 @@ def _python_chunks(source, relative_path, repo_name):
     return chunks
 
 
-def _tree_sitter_chunks(source_bytes, relative_path, repo_name, language):
-    chunks = []
-    try:
-        parser = get_parser(language)
-        tree = parser.parse(source_bytes)
-        if tree.root_node.has_error:
-            parse_errors = True
-        else:
-            parse_errors = False
-
-        def visit(node, enclosing_class=None):
-            node_type = node.type
-            if node_type in DECLARATION_TYPES:
-                name_node = node.child_by_field_name("name")
-                name = (
-                    source_bytes[name_node.start_byte:name_node.end_byte].decode(
-                        "utf-8", errors="replace"
-                    )
-                    if name_node else None
-                )
-                start = node.start_byte
-                end = node.end_byte
-                code = source_bytes[start:end].decode("utf-8", errors="replace")
-                line = node.start_point.row + 1
-                is_class = node_type in {
-                    "class_declaration", "interface_declaration",
-                    "enum_declaration", "record_declaration",
-                    "struct_declaration", "type_declaration", "type_spec",
-                    "struct_specifier", "class_specifier", "struct_item",
-                    "enum_item", "trait_item", "impl_item", "mod_item",
-                    "trait_declaration", "class", "module",
-                    "object_declaration", "protocol_declaration",
-                    "enum_specifier", "namespace_definition",
-                }
-                kind = "class" if is_class else "function"
-                if code.strip():
-                    chunks.append({
-                        "document": code,
-                        "metadata": {
-                            "repository": repo_name,
-                            "file": relative_path,
-                            "language": language,
-                            "type": kind,
-                            "name": name or f"<anonymous:{kind}>",
-                            "class_name": enclosing_class,
-                            "qualified_name": (
-                                f"{enclosing_class}.{name}"
-                                if enclosing_class and name and not is_class
-                                else name
-                            ),
-                            "line": line,
-                            "end_line": node.end_point.row + 1,
-                            "parse_errors": parse_errors,
-                        },
-                    })
-                if is_class and name:
-                    enclosing_class = name
-
-            for child in node.named_children:
-                visit(child, enclosing_class)
-
-        visit(tree.root_node)
-    except Exception as error:
-        # Keep file-level retrieval available even if one grammar fails.
-        return chunks, str(error)
-    return chunks, None
-
-
 def create_chunks(repository_path):
     """Create language-aware file and declaration chunks for a repository."""
     repository_path = os.path.abspath(repository_path)
@@ -185,13 +105,60 @@ def create_chunks(repository_path):
 
             if language == "python":
                 chunks.extend(_python_chunks(source, relative_path, repo_name))
+            elif language in {"javascript", "typescript", "tsx"}:
+                parsed = TreeSitterParser(language).parse_file(file_path)
+                for declaration in parsed.get("declaration_chunks", []):
+                    chunks.append({
+                        "document": declaration["code"],
+                        "metadata": {
+                            "repository": repo_name,
+                            "file": relative_path,
+                            "language": language,
+                            "type": declaration["type"],
+                            "name": declaration["name"],
+                            "class_name": declaration.get("class_name"),
+                            "qualified_name": (
+                                str(declaration["class_name"]) + "." + str(declaration["name"])
+                                if declaration.get("class_name")
+                                and declaration["type"] == "function"
+                                else declaration["name"]
+                            ),
+                            "line": declaration["line"],
+                            "end_line": declaration["end_line"],
+                            "parse_errors": bool(parsed.get("parse_errors", False)),
+                        },
+                    })
+                if parsed.get("error"):
+                    print(
+                        "JavaScript/TypeScript chunking skipped declarations in "
+                        + relative_path + ": " + parsed["error"]
+                    )
             else:
-                declaration_chunks, error = _tree_sitter_chunks(
-                    source_bytes, relative_path, repo_name, language
-                )
-                chunks.extend(declaration_chunks)
-                if error:
-                    print(f"Tree-sitter chunking skipped declarations in {relative_path}: {error}")
+                parsed = GenericTreeSitterParser(language).parse_file(file_path)
+                for declaration in parsed.get("declaration_chunks", []):
+                    chunks.append({
+                        "document": declaration["code"],
+                        "metadata": {
+                            "repository": repo_name,
+                            "file": relative_path,
+                            "language": language,
+                            "type": declaration["type"],
+                            "name": declaration["name"],
+                            "class_name": declaration.get("class_name"),
+                            "qualified_name": (
+                                str(declaration["class_name"]) + "." + str(declaration["name"])
+                                if declaration.get("class_name")
+                                and declaration["type"] == "function"
+                                else declaration["name"]
+                            ),
+                            "line": declaration["line"],
+                            "end_line": declaration["end_line"],
+                            "parse_errors": bool(parsed.get("parse_errors", False)),
+                        },
+                    })
+                if parsed.get("error"):
+                    print("WASM chunking skipped declarations in "
+                          + relative_path + ": " + parsed["error"])
 
     return chunks
 

@@ -449,6 +449,8 @@ def build_graph(analysis_file):
                 "file": file_path,
                 "class": class_name,
                 "line": line,
+                "parameter_count": function.get("parameter_count"),
+                "parameter_types": function.get("parameter_types"),
             }
 
             function_nodes[function_name].append(function_info)
@@ -466,10 +468,12 @@ def build_graph(analysis_file):
 
             if class_name:
                 class_id = class_nodes.get((file_path, class_name))
+                interface_id = interface_nodes.get((file_path, class_name))
 
-                if class_id:
+                owner_id = class_id or interface_id
+                if owner_id:
                     edges.append({
-                        "source": class_id,
+                        "source": owner_id,
                         "target": function_id,
                         "relationship": "contains",
                     })
@@ -508,6 +512,55 @@ def build_graph(analysis_file):
         # Duplicate candidate paths should not create artificial ambiguity.
         unique = {record["file"]: record for record in matches}
         return next(iter(unique.values())) if len(unique) == 1 else None
+
+    # Java V2: match declared receiver types to project-owned types. A type
+    # name must be unique; otherwise leave the call unresolved.
+    java_types = defaultdict(list)
+    for (owner_file, owner_name), owner_id in {**class_nodes, **interface_nodes}.items():
+        java_types[owner_name].append(owner_file)
+
+    def java_owner_methods(type_name, method_name, argument_count=None, argument_types=None):
+        if not type_name or len(set(java_types.get(type_name, []))) != 1:
+            return []
+        owner_file = java_types[type_name][0]
+        candidates = [
+            candidate for candidate in function_nodes.get(method_name, [])
+            if candidate["file"] == owner_file and candidate["class"] == type_name
+        ]
+        if argument_count is not None:
+            arity_matches = [
+                candidate for candidate in candidates
+                if candidate.get("parameter_count") == argument_count
+            ]
+            if arity_matches:
+                candidates = arity_matches
+            elif candidates and all(
+                candidate.get("parameter_count") is not None
+                for candidate in candidates
+            ):
+                return []
+
+        # Prefer exact declared parameter types when every call argument has
+        # a locally known type. If type information is incomplete, retain the
+        # conservative arity-based candidates instead of guessing.
+        # Type matching is only needed to disambiguate overloaded methods.
+        # If arity leaves one candidate, keep it: strict string equality would
+        # incorrectly reject valid Java calls involving boxing, widening, or
+        # qualified/generic type spellings.
+        if len(candidates) <= 1:
+            return candidates
+
+        if argument_types and all(argument_types):
+            typed_candidates = [
+                candidate for candidate in candidates
+                if candidate.get("parameter_types")
+                and len(candidate["parameter_types"]) == len(argument_types)
+                and all(candidate_type is not None for candidate_type in candidate["parameter_types"])
+                and candidate["parameter_types"] == argument_types
+            ]
+            if typed_candidates:
+                return typed_candidates
+        return candidates
 
     resolved_calls = 0
     unresolved_calls = 0
@@ -645,6 +698,63 @@ def build_graph(analysis_file):
                         if candidate["file"] == file_path
                         and candidate["class"] == caller_class
                     ]
+
+            elif call_type == "attribute" and receiver and item.get("language") == "java":
+                # Resolve Java calls only through an explicitly typed field or
+                # an explicit this/super receiver. Never infer from method name alone.
+                target_owner = None
+                if receiver in {"this", "super"} and caller_class:
+                    target_owner = caller_class
+                else:
+                    # Both 'repository.findById()' and
+                    # 'this.repository.findById()' refer to a typed field.
+                    field_receiver = receiver.removeprefix("this.") if receiver else ""
+                    matching_fields = [
+                        field for field in item.get("typed_fields", [])
+                        if field.get("class") == caller_class
+                        and field.get("name") == field_receiver
+                    ]
+                    field_types = {field.get("type") for field in matching_fields}
+                    variable_fields = [
+                        variable for variable in item.get("typed_variables", [])
+                        if variable.get("class") == caller_class
+                        and variable.get("function") == called_from
+                        and variable.get("name") == field_receiver
+                    ]
+                    variable_types = {variable.get("type") for variable in variable_fields}
+                    all_receiver_types = field_types | variable_types
+                    if len(all_receiver_types) == 1:
+                        target_owner = next(iter(all_receiver_types))
+
+                if target_owner:
+                    argument_types = []
+                    typed_arguments = {
+                        variable.get("name"): variable.get("type")
+                        for variable in item.get("typed_variables", [])
+                        if variable.get("class") == caller_class
+                        and variable.get("function") == called_from
+                    }
+                    for argument in call.get("argument_texts", []):
+                        argument = argument.strip()
+                        if argument in typed_arguments:
+                            argument_types.append(typed_arguments[argument])
+                        elif argument == "true" or argument == "false":
+                            argument_types.append("boolean")
+                        elif argument.startswith('"') or argument.startswith("'"):
+                            argument_types.append("String")
+                        elif argument.isdigit():
+                            argument_types.append("int")
+                        else:
+                            argument_types.append(None)
+                    owner_candidates = java_owner_methods(
+                        target_owner, called_name, call.get("argument_count"),
+                        argument_types if argument_types else None
+                    )
+                    if len(owner_candidates) == 1:
+                        target_candidates = owner_candidates
+                        resolution = "java_typed_field" if receiver not in {"this", "super"} else "java_same_class"
+                    elif len(owner_candidates) > 1:
+                        target_candidates = owner_candidates
 
             elif call_type == "attribute" and receiver:
                 # Class-qualified calls can be resolved through imported class aliases.
