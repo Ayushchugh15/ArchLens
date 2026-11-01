@@ -195,12 +195,12 @@ def import_github_repository(request: ImportRepositoryRequest):
             exist_ok=True
         )
 
-        # 2. Analyze Python files
+        # 2. Analyze all registered source languages
         analysis = analyze_repository(str(repo_path))
 
         if not analysis:
             raise ValueError(
-                "No Python files were found in this repository."
+                "No supported source files were found in this repository."
             )
 
         analysis_file = generated_dir / "analysis.json"
@@ -225,7 +225,7 @@ def import_github_repository(request: ImportRepositoryRequest):
 
         if not chunks:
             raise ValueError(
-                "No Python code chunks could be generated."
+                "No code chunks could be generated for supported source files."
             )
 
         chunks_file = generated_dir / "code_chunks.json"
@@ -240,7 +240,20 @@ def import_github_repository(request: ImportRepositoryRequest):
 
         # 6. Update metadata only after successful processing
         metadata["status"] = "ready"
-        metadata["python_files"] = len(analysis)
+        metadata["analyzed_files"] = len(analysis)
+        metadata["language_counts"] = {
+            language: sum(
+                1 for item in analysis
+                if item.get("language") == language
+            )
+            for language in sorted({
+                item.get("language", "unknown") for item in analysis
+            })
+        }
+        metadata["parse_errors"] = sum(
+            1 for item in analysis
+            if item.get("error") or item.get("parse_errors")
+        )
         metadata["chunks"] = len(chunks)
         metadata["graph_nodes"] = len(graph["nodes"])
         metadata["graph_edges"] = len(graph["edges"])
@@ -261,7 +274,9 @@ def import_github_repository(request: ImportRepositoryRequest):
             "message": "Repository imported and indexed successfully.",
             "repository": repo_id,
             "status": "ready",
-            "python_files": len(analysis),
+            "analyzed_files": len(analysis),
+            "language_counts": metadata["language_counts"],
+            "parse_errors": metadata["parse_errors"],
             "chunks": len(chunks),
             "graph_nodes": len(graph["nodes"]),
             "graph_edges": len(graph["edges"])
