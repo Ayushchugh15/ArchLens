@@ -393,3 +393,17 @@ def test_repository_analyzer_skips_unsupported_file_extensions(tmp_path):
     assert results[0]["language"] == "python"
     assert not results[0].get("error")
     assert results[0]["file"].endswith("main.py")
+
+def test_javascript_parser_handles_full_frontend_app_without_crashing():
+    from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+
+    app_file = Path("frontend/app.js")
+    if not app_file.exists():
+        return
+
+    parsed = TreeSitterParser("javascript").parse_file(str(app_file))
+
+    assert not parsed.get("error"), parsed.get("error")
+    assert parsed["functions"]
+    assert parsed["calls"]
+
