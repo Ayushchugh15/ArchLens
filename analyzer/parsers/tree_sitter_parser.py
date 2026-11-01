@@ -38,6 +38,21 @@ class TreeSitterParser(BaseParser):
             if tree.root_node.has_error:
                 result["parse_errors"] = True
 
+            def iter_children(node):
+                """Yield child nodes through a Tree-sitter cursor.
+
+                Avoid materializing iter_children(node) lists, which can create many
+                native Node wrappers during large-file traversal.
+                """
+                cursor = node.walk()
+                if not cursor.goto_first_child():
+                    return
+
+                while True:
+                    yield cursor.node
+                    if not cursor.goto_next_sibling():
+                        break
+
             def text(node):
                 return source[
                     node.start_byte:node.end_byte
@@ -69,15 +84,15 @@ class TreeSitterParser(BaseParser):
                             collect_parameters(left_node)
 
                     elif parameter_node.type == "rest_pattern":
-                        for child in parameter_node.children:
+                        for child in iter_children(parameter_node):
                             if child.type == "identifier":
                                 arguments.append("..." + text(child))
 
                     else:
-                        for child in parameter_node.children:
+                        for child in iter_children(parameter_node):
                             collect_parameters(child)
 
-                for child in node.children:
+                for child in iter_children(node):
                     collect_parameters(child)
 
                 return arguments
@@ -100,7 +115,7 @@ class TreeSitterParser(BaseParser):
                     module_node = None
                     import_clause = None
 
-                    for child in node.children:
+                    for child in iter_children(node):
                         if child.type == "string":
                             module_node = child
                         elif child.type == "import_clause":
@@ -125,7 +140,7 @@ class TreeSitterParser(BaseParser):
                             })
 
                         else:
-                            for child in import_clause.children:
+                            for child in iter_children(import_clause):
 
                                 # Default import
                                 if child.type == "identifier":
@@ -143,12 +158,12 @@ class TreeSitterParser(BaseParser):
 
                                 # Named imports
                                 elif child.type == "named_imports":
-                                    for specifier in child.children:
+                                    for specifier in iter_children(child):
                                         if specifier.type != "import_specifier":
                                             continue
 
                                         identifiers = [
-                                            part for part in specifier.children
+                                            part for part in iter_children(specifier)
                                             if part.type == "identifier"
                                         ]
 
@@ -175,7 +190,7 @@ class TreeSitterParser(BaseParser):
                                 # Namespace imports
                                 elif child.type == "namespace_import":
                                     identifiers = [
-                                        part for part in child.children
+                                        part for part in iter_children(child)
                                         if part.type == "identifier"
                                     ]
 
@@ -229,9 +244,9 @@ class TreeSitterParser(BaseParser):
                     if name_node:
                         class_name = text(name_node)
 
-                        for child in node.children:
+                        for child in iter_children(node):
                             if child.type == "class_heritage":
-                                for clause in child.children:
+                                for clause in iter_children(child):
                                     if clause.type == "extends_clause":
 
                                         def find_parent(parent_node):
@@ -246,7 +261,7 @@ class TreeSitterParser(BaseParser):
                                                 })
                                                 return
 
-                                            for nested in parent_node.children:
+                                            for nested in iter_children(parent_node):
                                                 find_parent(nested)
 
                                         find_parent(clause)
@@ -258,11 +273,11 @@ class TreeSitterParser(BaseParser):
                     if name_node:
                         class_name = text(name_node)
 
-                        for child in node.children:
+                        for child in iter_children(node):
                             if child.type == "class_heritage":
-                                for clause in child.children:
+                                for clause in iter_children(child):
                                     if clause.type == "implements_clause":
-                                        for interface_node in clause.children:
+                                        for interface_node in iter_children(clause):
                                             if interface_node.type in {
                                                 "identifier",
                                                 "type_identifier",
@@ -413,7 +428,7 @@ class TreeSitterParser(BaseParser):
                 # CHILD NODES
                 # -----------------------------
 
-                for child in node.children:
+                for child in iter_children(node):
 
                     visit(
                         child,
