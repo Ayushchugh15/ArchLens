@@ -12,5 +12,6 @@ class PythonParser(BaseParser):
         result.setdefault("inheritance", [])
         result.setdefault("implementations", [])
         result.setdefault("interfaces", [])
+        result.setdefault("instantiations", [])
 
         return result
