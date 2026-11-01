@@ -497,3 +497,67 @@ def test_java_only_repository_uses_wasm_parser_without_python(tmp_path):
     analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
     graph = build_graph(str(analysis_file))
     assert any(node.get("label") == "UserService" for node in graph["nodes"])
+
+
+def test_java_parser_extracts_implementations_typed_fields_and_method_calls(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    (tmp_path / "Repository.java").write_text(
+        "package demo;\n"
+        "interface Repository { Object findById(int id); }\n"
+        "class JpaRepository implements Repository {\n"
+        "  public Object findById(int id) { return null; }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "OwnerController.java").write_text(
+        "package demo;\n"
+        "class OwnerController {\n"
+        "  private Repository repository;\n"
+        "  public Object showOwner(int id) { return repository.findById(id); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    analysis = analyze_repository(str(tmp_path))
+    assert all(not item.get("error") for item in analysis), analysis
+
+    repository_record = next(
+        item for item in analysis if item["file"].endswith("Repository.java")
+    )
+    controller_record = next(
+        item for item in analysis if item["file"].endswith("OwnerController.java")
+    )
+
+    assert {
+        "class": "JpaRepository", "interface": "Repository", "line": 3
+    } in repository_record["implementations"]
+    assert {
+        "class": "OwnerController", "name": "repository",
+        "type": "Repository", "line": 3
+    } in controller_record["typed_fields"]
+    assert any(
+        call["name"] == "findById"
+        and call["receiver"] == "repository"
+        and call["called_from"] == "showOwner"
+        for call in controller_record["calls"]
+    )
+
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    graph = build_graph(str(analysis_path))
+
+    implementation_edges = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "implements"
+    ]
+    call_edges = [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "calls"
+        and edge.get("resolution") == "java_typed_field"
+    ]
+    assert len(implementation_edges) == 1
+    assert len(call_edges) == 1
+    assert graph["call_resolution"]["resolved_calls"] == 1
