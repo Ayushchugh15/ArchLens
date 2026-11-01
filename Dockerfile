@@ -5,12 +5,15 @@ WORKDIR /app
 # Install Git for repository cloning
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY requirements.txt package.json .
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && npm install --omit=dev --no-audit --no-fund
 
 # Copy project files
 COPY . .

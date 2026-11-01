@@ -211,7 +211,7 @@ def analyze_repository(repository_path):
             return None
         if language == "python":
             return python_parser
-        if language in {"javascript", "typescript"}:
+        if language in {"javascript", "typescript", "tsx"}:
             key = language
             if key not in parser_cache:
                 parser_cache[key] = TreeSitterParser(language)
@@ -285,7 +285,7 @@ def main():
         json.dump(results, file, indent=2)
 
     print("Repository analyzed successfully.")
-    print(f"Python files found: {len(results)}")
+    print(f"Source files analyzed: {len(results)}")
     print(f"Analysis saved to: {output_file}")
 
 
