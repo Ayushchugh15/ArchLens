@@ -128,6 +128,7 @@ def build_graph(analysis_file):
         nodes.append({
             "id": file_id,
             "type": "file",
+            "language": item.get("language", "unknown"),
             "label": os.path.basename(file_path),
             "file": file_path,
             "file_category": classify_file(file_path),
@@ -174,6 +175,7 @@ def build_graph(analysis_file):
             nodes.append({
                 "id": class_id,
                 "type": "class",
+                "language": item.get("language", "unknown"),
                 "label": class_name,
                 "file": file_path,
                 "line": line,
@@ -206,6 +208,7 @@ def build_graph(analysis_file):
             nodes.append({
                 "id": interface_id,
                 "type": "interface",
+                "language": item.get("language", "unknown"),
                 "label": interface_name,
                 "file": file_path,
                 "line": line,
@@ -384,6 +387,7 @@ def build_graph(analysis_file):
             nodes.append({
                 "id": function_id,
                 "type": "function",
+                "language": item.get("language", "unknown"),
                 "label": function_name,
                 "file": file_path,
                 "line": line,
