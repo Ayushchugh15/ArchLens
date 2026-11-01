@@ -199,11 +199,27 @@ def analyze_repository(repository_path):
         dirs[:] = [directory for directory in dirs if directory not in ignored_dirs]
         for filename in files:
             extension = os.path.splitext(filename)[1].lower()
-            parser = parser_for(extension)
-            if parser is None:
-                continue
             file_path = os.path.join(root, filename)
-            results.append(parser.parse_file(file_path))
+            language = LANGUAGE_BY_EXTENSION[extension]
+            try:
+                parser = parser_for(extension)
+                results.append(parser.parse_file(file_path))
+            except Exception as error:
+                # An unavailable grammar or malformed source must not abort
+                # analysis of every other supported file in the repository.
+                results.append({
+                    "file": file_path,
+                    "language": language,
+                    "imports": [],
+                    "import_details": [],
+                    "classes": [],
+                    "interfaces": [],
+                    "functions": [],
+                    "calls": [],
+                    "inheritance": [],
+                    "implementations": [],
+                    "error": str(error),
+                })
 
     return results
 
