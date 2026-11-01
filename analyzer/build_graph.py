@@ -280,6 +280,8 @@ def build_graph(analysis_file):
             child_id = class_nodes.get((file_path, child_name))
             if not child_id or not parent_name:
                 continue
+            if class_nodes.get((file_path, parent_name)):
+                continue
 
             candidates = classes_by_name.get(parent_name, [])
             candidates = [entry for entry in candidates if entry[0] != file_path]
@@ -303,6 +305,8 @@ def build_graph(analysis_file):
             interface_name = relationship.get("interface")
             child_id = class_nodes.get((file_path, child_name))
             if not child_id or not interface_name:
+                continue
+            if interface_nodes.get((file_path, interface_name)):
                 continue
 
             candidates = interfaces_by_name.get(interface_name, [])
