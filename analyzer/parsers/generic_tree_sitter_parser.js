@@ -135,7 +135,7 @@ async function main() {
           target.push({ name, line });
           currentClass = name;
           result.declaration_chunks.push({
-            code: nodeText(node, source), type: "interface" in target ? "interface" : "class",
+            code: nodeText(node, source), type: INTERFACE_NODES.has(type) ? "interface" : "class",
             name, class_name: enclosingClass, line, end_line: endLine
           });
         }
