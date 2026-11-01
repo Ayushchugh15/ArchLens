@@ -664,6 +664,10 @@ async function askArchLens() {
     const sourcesContainer = getElement("sources");
     const button = getElement("askButton");
     const repositorySelect = getElement("repository");
+    const assistantToggle = getElement("assistantToggle");
+    const assistantPanel = getElement("assistantPanel");
+    const assistantClose = getElement("assistantClose");
+    const questionInput = getElement("question");
 
     if (!questionInput || !answerContainer || !button) {
         console.error("One or more Q&A HTML elements are missing.");
@@ -672,6 +676,10 @@ async function askArchLens() {
 
     const question = questionInput.value.trim();
     const repository = repositorySelect?.value || currentRepository;
+    const assistantContext = getElement("assistantContext");
+    if (assistantContext) assistantContext.textContent = repository
+        ? `Active repository: ${repository}`
+        : "Select and load a repository to start asking questions.";
 
     if (!question) {
         alert("Please enter a question.");
@@ -1264,6 +1272,33 @@ function initializeArchLens() {
         askButton.dataset.listenerAttached = "true";
         askButton.addEventListener("click", askArchLens);
     }
+
+    const setAssistantOpen = (open) => {
+        if (!assistantPanel || !assistantToggle) return;
+        assistantPanel.classList.toggle("is-open", open);
+        assistantPanel.setAttribute("aria-hidden", String(!open));
+        assistantToggle.setAttribute("aria-expanded", String(open));
+        if (open) window.setTimeout(() => questionInput?.focus(), 180);
+    };
+    if (assistantToggle && !assistantToggle.dataset.listenerAttached) {
+        assistantToggle.dataset.listenerAttached = "true";
+        assistantToggle.addEventListener("click", () => setAssistantOpen(!assistantPanel?.classList.contains("is-open")));
+    }
+    if (assistantClose && !assistantClose.dataset.listenerAttached) {
+        assistantClose.dataset.listenerAttached = "true";
+        assistantClose.addEventListener("click", () => setAssistantOpen(false));
+    }
+    if (questionInput && !questionInput.dataset.shortcutAttached) {
+        questionInput.dataset.shortcutAttached = "true";
+        questionInput.addEventListener("keydown", event => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault(); askArchLens();
+            }
+        });
+    }
+    document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && assistantPanel?.classList.contains("is-open")) setAssistantOpen(false);
+    });
 
     if (loadButton && !loadButton.dataset.listenerAttached) {
         loadButton.dataset.listenerAttached = "true";
