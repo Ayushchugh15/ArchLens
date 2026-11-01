@@ -480,41 +480,79 @@ def build_graph(analysis_file):
                     "relationship": "contains",
                 })
 
-    # Resolve call relationships conservatively
-    # Build module index once
+    # Resolve call relationships using explicit import bindings where available.
     module_map = build_module_index(analysis)
-
     module_by_file = {
-        record["file"]: module
-        for module, record in module_map.items()
+        record["file"]: module for module, record in module_map.items()
     }
+    analysis_paths = {
+        os.path.normpath(record["file"]): record for record in analysis
+    }
+
+    def resolve_js_module(source_file, module):
+        if not module or not module.startswith("."):
+            return None
+        base_path = os.path.normpath(
+            os.path.join(os.path.dirname(source_file), module)
+        )
+        candidates = [
+            base_path, base_path + ".ts", base_path + ".tsx",
+            base_path + ".js", base_path + ".jsx", base_path + ".mjs",
+            base_path + ".cjs",
+            os.path.join(base_path, "index.ts"),
+            os.path.join(base_path, "index.tsx"),
+            os.path.join(base_path, "index.js"),
+            os.path.join(base_path, "index.jsx"),
+        ]
+        matches = [analysis_paths[path] for path in candidates if path in analysis_paths]
+        # Duplicate candidate paths should not create artificial ambiguity.
+        unique = {record["file"]: record for record in matches}
+        return next(iter(unique.values())) if len(unique) == 1 else None
 
     resolved_calls = 0
     unresolved_calls = 0
     unresolved_reasons = defaultdict(int)
+    unresolved_call_details = []
 
     for item in analysis:
         file_path = item["file"]
         current_module = module_by_file.get(file_path)
-
-        import_bindings = {}
+        function_imports = {}
+        class_imports = {}
+        import_resolution_issues = []
 
         for imp in item.get("import_details", []):
-            if imp.get("type") != "from_import":
-                continue
-
-            target_record, symbol, target_module = resolve_import_target(
-                imp, current_module, module_map
-            )
-
-            if target_record and symbol:
-                local_name = imp.get("alias") or symbol
-
-                import_bindings[local_name] = (
-                    target_record,
-                    symbol,
-                    target_module
+            if imp.get("type") == "from_import":
+                target_record, symbol, target_module = resolve_import_target(
+                    imp, current_module, module_map
                 )
+                if not target_record or not symbol:
+                    continue
+                local_name = imp.get("alias") or symbol
+                if (target_record["file"], symbol) in class_nodes:
+                    class_imports[local_name] = (target_record, symbol)
+                elif any(
+                    fn.get("name") == symbol and fn.get("class") is None
+                    for fn in target_record.get("functions", [])
+                ):
+                    function_imports[local_name] = (target_record, symbol)
+
+            elif (
+                imp.get("type") == "import"
+                and imp.get("import_kind") == "named"
+            ):
+                target_record = resolve_js_module(file_path, imp.get("module"))
+                symbol = imp.get("name")
+                if not target_record or not symbol:
+                    continue
+                local_name = imp.get("alias") or symbol
+                if (target_record["file"], symbol) in class_nodes:
+                    class_imports[local_name] = (target_record, symbol)
+                elif any(
+                    fn.get("name") == symbol and fn.get("class") is None
+                    for fn in target_record.get("functions", [])
+                ):
+                    function_imports[local_name] = (target_record, symbol)
 
         for call in item.get("calls", []):
             called_name = call.get("name")
@@ -524,12 +562,23 @@ def build_graph(analysis_file):
             call_type = call.get("call_type", "direct")
             receiver = call.get("receiver")
 
+            def unresolved(reason):
+                nonlocal_dummy = None
+                unresolved_call_details.append({
+                    "file": file_path,
+                    "line": call.get("line"),
+                    "caller": called_from,
+                    "expression": call.get("expression"),
+                    "target": called_name,
+                    "reason": reason,
+                })
+
             if not called_name or not called_from or not caller_line:
                 unresolved_calls += 1
                 unresolved_reasons["missing_caller"] += 1
+                unresolved("missing_caller")
                 continue
 
-            # Find the exact caller using its file, name and line.
             source_candidates = [
                 candidate
                 for candidate in function_nodes.get(called_from, [])
@@ -537,54 +586,54 @@ def build_graph(analysis_file):
                 and candidate["line"] == caller_line
                 and candidate["class"] == caller_class
             ]
-
             if len(source_candidates) != 1:
                 unresolved_calls += 1
                 unresolved_reasons["ambiguous_or_missing_caller"] += 1
+                unresolved("ambiguous_or_missing_caller")
                 continue
 
             source = source_candidates[0]
             target_candidates = []
+            resolution = "unique_name_and_scope"
 
             if call_type == "direct":
-                # First try resolving an imported function.
-                binding = import_bindings.get(called_name)
-
+                binding = function_imports.get(called_name)
                 if binding:
-                    target_record, symbol, target_module = binding
-
+                    target_record, symbol = binding
                     target_candidates = [
-                        candidate
-                        for candidate in function_nodes.get(symbol, [])
+                        candidate for candidate in function_nodes.get(symbol, [])
                         if candidate["file"] == target_record["file"]
                         and candidate["class"] is None
                     ]
-
+                    resolution = "imported_function"
                 else:
-                    # Otherwise, resolve within the same file.
                     target_candidates = [
-                        candidate
-                        for candidate in function_nodes.get(called_name, [])
+                        candidate for candidate in function_nodes.get(called_name, [])
                         if candidate["file"] == file_path
                     ]
 
             elif call_type == "attribute" and receiver == "self":
-                # Resolve self.method() only within the same class.
                 if caller_class:
                     target_candidates = [
-                        candidate
-                        for candidate in function_nodes.get(called_name, [])
+                        candidate for candidate in function_nodes.get(called_name, [])
                         if candidate["file"] == file_path
                         and candidate["class"] == caller_class
                     ]
 
             elif call_type == "attribute" and receiver:
-                # Resolve ClassName.method() only when the class
-                # and method identify one unique target in this file.
-                if receiver.isidentifier():
+                # Class-qualified calls can be resolved through imported class aliases.
+                class_binding = class_imports.get(receiver)
+                if class_binding:
+                    target_record, class_symbol = class_binding
                     target_candidates = [
-                        candidate
-                        for candidate in function_nodes.get(called_name, [])
+                        candidate for candidate in function_nodes.get(called_name, [])
+                        if candidate["file"] == target_record["file"]
+                        and candidate["class"] == class_symbol
+                    ]
+                    resolution = "imported_class_method"
+                elif receiver.isidentifier():
+                    target_candidates = [
+                        candidate for candidate in function_nodes.get(called_name, [])
                         if candidate["file"] == file_path
                         and candidate["class"] == receiver
                     ]
@@ -592,35 +641,25 @@ def build_graph(analysis_file):
             else:
                 unresolved_calls += 1
                 unresolved_reasons["unsupported_call_type"] += 1
+                unresolved("unsupported_call_type")
                 continue
 
-            # Never guess when multiple targets have the same name.
             if len(target_candidates) != 1:
                 unresolved_calls += 1
-
-                if not target_candidates:
-                    unresolved_reasons["target_not_found"] += 1
-                else:
-                    unresolved_reasons["ambiguous_target"] += 1
-
+                reason = "target_not_found" if not target_candidates else "ambiguous_target"
+                unresolved_reasons[reason] += 1
+                unresolved(reason)
                 continue
 
             target = target_candidates[0]
-
             edges.append({
                 "source": source["id"],
                 "target": target["id"],
                 "relationship": "calls",
                 "call_expression": call.get("expression"),
                 "call_line": call.get("line"),
-                "resolution": (
-                    "imported_symbol"
-                    if call_type == "direct"
-                    and called_name in import_bindings
-                    else "unique_name_and_scope"
-                ),
+                "resolution": resolution,
             })
-
             resolved_calls += 1
 
     # Remove duplicate edges
@@ -646,6 +685,7 @@ def build_graph(analysis_file):
         "nodes": nodes,
         "edges": unique_edges,
         "unresolved_relationships": unresolved_relationships,
+        "unresolved_call_details": unresolved_call_details,
         "call_resolution": {
             "resolved_calls": resolved_calls,
             "unresolved_calls": unresolved_calls,
