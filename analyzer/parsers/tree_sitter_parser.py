@@ -5,6 +5,53 @@ from tree_sitter_language_pack import get_parser
 from analyzer.parsers.base_parser import BaseParser
 
 
+class _SyntaxNodeSnapshot:
+    """Python-only copy of the Tree-sitter data used by the analyzer."""
+
+    __slots__ = ("type", "start_byte", "end_byte", "start_point", "children", "fields", "parent")
+
+    def __init__(self, node_type, start_byte, end_byte, start_point):
+        self.type = node_type
+        self.start_byte = start_byte
+        self.end_byte = end_byte
+        self.start_point = start_point
+        self.children = []
+        self.fields = {}
+        self.parent = None
+
+    def child_by_field_name(self, name):
+        return self.fields.get(name)
+
+
+def _snapshot_tree(root_node):
+    """Copy syntax metadata before running extraction on Python objects only."""
+    cursor = root_node.walk()
+
+    def copy_cursor(current):
+        native_node = current.node
+        copied = _SyntaxNodeSnapshot(
+            native_node.type,
+            native_node.start_byte,
+            native_node.end_byte,
+            native_node.start_point,
+        )
+
+        if current.goto_first_child():
+            while True:
+                field_name = current.field_name
+                child = copy_cursor(current.copy())
+                child.parent = copied
+                copied.children.append(child)
+                if field_name is not None:
+                    copied.fields[field_name] = child
+                if not current.goto_next_sibling():
+                    break
+
+        return copied
+
+    return copy_cursor(cursor)
+
+
 class TreeSitterParser(BaseParser):
 
     def __init__(self, language: str):
@@ -37,6 +84,9 @@ class TreeSitterParser(BaseParser):
 
             if tree.root_node.has_error:
                 result["parse_errors"] = True
+
+            root = _snapshot_tree(tree.root_node)
+            del tree
 
             def text(node):
                 return source[
@@ -422,7 +472,7 @@ class TreeSitterParser(BaseParser):
                         current_class,
                     )
 
-            visit(tree.root_node)
+            visit(root)
 
         except Exception as error:
             result["error"] = str(error)
