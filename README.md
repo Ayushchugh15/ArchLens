@@ -14,23 +14,23 @@ ArchLens uses Python's AST for Python, the official TypeScript compiler API for 
 | JavaScript | `.js`, `.mjs`, `.cjs` | TypeScript compiler AST: imports, declarations, calls, class heritage, and declaration chunks |
 | TypeScript | `.ts` | TypeScript compiler AST: imports, declarations, calls, class heritage, and declaration chunks |
 | JSX / TSX | `.jsx`, `.tsx` | TypeScript compiler AST using JSX/TSX syntax mode |
-| Java | `.java` | Generic syntax analysis and chunks |
-| C# | `.cs` | Generic syntax analysis and chunks |
-| Go | `.go` | Generic syntax analysis and chunks |
-| C | `.c`, `.h` | Generic syntax analysis and chunks |
-| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | Generic syntax analysis and chunks |
-| Rust | `.rs` | Generic syntax analysis and chunks |
-| PHP | `.php` | Generic syntax analysis and chunks |
-| Ruby | `.rb` | Generic syntax analysis and chunks |
-| Kotlin | `.kt`, `.kts` | Generic syntax analysis and chunks |
-| Swift | `.swift` | Generic syntax analysis and chunks |
+| Java | `.java` | WASM syntax analysis and declaration chunks |
+| C# | `.cs` | WASM syntax analysis and declaration chunks |
+| Go | `.go` | WASM syntax analysis and declaration chunks |
+| C | `.c`, `.h` | WASM syntax analysis and declaration chunks |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | WASM syntax analysis and declaration chunks |
+| Rust | `.rs` | WASM syntax analysis and declaration chunks |
+| PHP | `.php` | WASM syntax analysis and declaration chunks |
+| Ruby | `.rb` | WASM syntax analysis and declaration chunks |
+| Kotlin | `.kt`, `.kts` | WASM syntax analysis and declaration chunks |
+| Swift | `.swift` | WASM syntax analysis and declaration chunks |
 
-**Support-level note:** JavaScript/TypeScript parsing is performed by the TypeScript compiler API through Node.js; it no longer uses the native Tree-sitter Python binding. Java, C#, Go, C, C++, Rust, PHP, Ruby, Kotlin, and Swift use the Tree-sitter WebAssembly adapter, which currently extracts common declarations and imports. Generic-language parsing is not yet complete language-specific semantic analysis. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
+**Support-level note:** JavaScript/TypeScript parsing is performed by the TypeScript compiler API through Node.js; it no longer uses the native Tree-sitter Python binding. Java, C#, Go, C, C++, Rust, PHP, Ruby, Kotlin, and Swift use the Tree-sitter WebAssembly adapter, which extracts common declarations and imports. The WebAssembly parser runs in a separate Node.js process instead of loading the native Python Tree-sitter binding. This improves process isolation but does not make generic-language extraction equivalent to full language-specific semantic analysis. C header files (`.h`) are currently treated as C; C++ header extensions are mapped to C++.
 
 ## Core capabilities
 
 - Repository import from public GitHub HTTPS URLs
-- Python AST, TypeScript compiler AST, and Tree-sitter source analysis
+- Python AST, TypeScript compiler AST, and Tree-sitter WebAssembly source analysis
 - File, class, interface, and function extraction where supported by the grammar
 - Import statement extraction
 - Architecture graph generation
