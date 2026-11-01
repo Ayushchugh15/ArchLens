@@ -1124,6 +1124,11 @@ function renderArchitectureFindings(findings) {
 
     container.replaceChildren();
 
+    const riskCount = getElement("riskCount");
+    if (riskCount) {
+        riskCount.textContent = `${findings.length} ${findings.length === 1 ? "risk" : "risks"} detected`;
+    }
+
     if (findings.length === 0) {
         const empty = document.createElement("p");
         empty.className = "dashboard-empty";
