@@ -1,11 +1,29 @@
-"""Conservative Tree-sitter adapter for languages beyond JS/TS."""
+"""Conservative Tree-sitter adapter for additional supported languages."""
 
 from pathlib import Path
 
 from tree_sitter_language_pack import get_parser
 
 from analyzer.parsers.base_parser import BaseParser
-from analyzer.language_support import CLASS_NODES, FUNCTION_NODES
+
+
+CLASS_NODES = {
+    "class_declaration", "interface_declaration", "enum_declaration",
+    "record_declaration", "struct_declaration", "type_spec",
+    "struct_specifier", "class_specifier", "function_item",
+    "struct_item", "enum_item", "trait_item", "impl_item", "mod_item",
+    "trait_declaration", "class", "module", "object_declaration",
+    "protocol_declaration", "enum_specifier", "namespace_definition",
+}
+INTERFACE_NODES = {
+    "interface_declaration", "trait_item", "trait_declaration",
+    "protocol_declaration",
+}
+FUNCTION_NODES = {
+    "function_declaration", "generator_function_declaration",
+    "method_definition", "method_declaration", "constructor_declaration",
+    "function_definition", "function_item", "method", "singleton_method",
+}
 
 
 class GenericTreeSitterParser(BaseParser):
@@ -39,11 +57,10 @@ class GenericTreeSitterParser(BaseParser):
                     "utf-8", errors="replace"
                 )
 
-            def get_name(node):
+            def node_name(node):
                 name_node = node.child_by_field_name("name")
                 if name_node:
                     return node_text(name_node)
-                # Some grammars represent names as the first named child.
                 for child in node.named_children:
                     if child.type in {
                         "identifier", "type_identifier", "constant",
@@ -52,37 +69,33 @@ class GenericTreeSitterParser(BaseParser):
                         return node_text(child)
                 return None
 
-            def walk(node, enclosing_class=None):
+            def visit(node, enclosing_class=None):
                 node_type = node.type
                 line = node.start_point.row + 1
 
                 if node_type in CLASS_NODES:
-                    name = get_name(node)
+                    name = node_name(node)
                     if name:
                         target = (
                             result["interfaces"]
-                            if "interface" in node_type or node_type in {
-                                "trait_item", "trait_declaration",
-                                "protocol_declaration",
-                            }
+                            if node_type in INTERFACE_NODES
                             else result["classes"]
                         )
                         target.append({"name": name, "line": line})
                         enclosing_class = name
 
                 if node_type in FUNCTION_NODES:
-                    name = get_name(node) or "<anonymous>"
                     result["functions"].append({
-                        "name": name,
+                        "name": node_name(node) or "<anonymous>",
                         "line": line,
                         "arguments": [],
                         "class": enclosing_class,
                     })
 
                 for child in node.named_children:
-                    walk(child, enclosing_class)
+                    visit(child, enclosing_class)
 
-            walk(tree.root_node)
+            visit(tree.root_node)
 
         except Exception as error:
             result["error"] = str(error)
