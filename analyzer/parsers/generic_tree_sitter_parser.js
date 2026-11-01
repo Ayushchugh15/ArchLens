@@ -146,13 +146,21 @@ async function main() {
       if (FUNCTION_NODES.has(type)) {
         const name = getName(node, source) || "<anonymous>";
         const parametersNode = node.childForFieldName("parameters");
-        const parameterCount = parametersNode
+        const parameterNodes = parametersNode
           ? (parametersNode.namedChildren || []).filter(child =>
-              ["formal_parameter", "spread_parameter", "receiver_parameter", "parameter"].includes(child.type)).length
-          : null;
+              ["formal_parameter", "spread_parameter", "receiver_parameter", "parameter"].includes(child.type))
+          : [];
+        const parameterCount = parametersNode ? parameterNodes.length : null;
+        const parameterTypes = language === "java"
+          ? parameterNodes.map(parameter => {
+              const typeNode = parameter.childForFieldName("type");
+              return typeNode ? nodeText(typeNode, source).replace(/<.*>$/, "").trim() : null;
+            })
+          : [];
         result.functions.push({
           name, line, arguments: [], class: currentClass,
-          parameter_count: parameterCount
+          parameter_count: parameterCount,
+          ...(language === "java" ? { parameter_types: parameterTypes } : {})
         });
         result.declaration_chunks.push({
           code: nodeText(node, source), type: "function", name,
@@ -220,7 +228,9 @@ async function main() {
         const argumentsNode = node.childForFieldName("arguments");
         const name = nameNode ? nodeText(nameNode, source).trim() : null;
         const receiver = objectNode ? nodeText(objectNode, source).trim() : null;
-        const argumentCount = argumentsNode ? (argumentsNode.namedChildren || []).length : null;
+        const argumentNodes = argumentsNode ? (argumentsNode.namedChildren || []) : [];
+        const argumentCount = argumentsNode ? argumentNodes.length : null;
+        const argumentTexts = argumentNodes.map(argument => nodeText(argument, source).trim());
         if (name && currentFunction) {
           result.calls.push({
             name, called_from: currentFunction,
@@ -229,7 +239,8 @@ async function main() {
             call_type: receiver ? "attribute" : "direct",
             expression: nodeText(node, source),
             receiver: receiver || null,
-            argument_count: argumentCount
+            argument_count: argumentCount,
+            argument_texts: argumentTexts
           });
         }
       }
