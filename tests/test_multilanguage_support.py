@@ -65,3 +65,82 @@ def test_javascript_and_typescript_receive_language_tagged_chunks():
     assert "javascript" in languages
     assert "typescript" in languages
     assert all(chunk["metadata"].get("file") for chunk in chunks)
+
+
+def test_build_graph_resolves_unique_cross_file_inheritance_and_implementation(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    analysis = [
+        {
+            "file": str(tmp_path / "base.py"), "language": "python",
+            "imports": [], "classes": [{"name": "BaseService", "line": 1}],
+            "interfaces": [{"name": "ServiceContract", "line": 2}],
+            "functions": [], "calls": [], "inheritance": [],
+            "implementations": [],
+        },
+        {
+            "file": str(tmp_path / "implementation.py"), "language": "python",
+            "imports": [], "classes": [{"name": "UserService", "line": 1}],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [{"class": "UserService", "parent": "BaseService", "line": 1}],
+            "implementations": [{"class": "UserService", "interface": "ServiceContract", "line": 1}],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    relationships = {
+        (edge["relationship"], edge["source"], edge["target"])
+        for edge in graph["edges"]
+    }
+
+    child = f"class:{analysis[1]['file']}:UserService:1"
+    parent = f"class:{analysis[0]['file']}:BaseService:1"
+    interface = f"interface:{analysis[0]['file']}:ServiceContract:2"
+    assert ("extends", child, parent) in relationships
+    assert ("implements", child, interface) in relationships
+    assert not graph["unresolved_relationships"]
+
+
+def test_build_graph_does_not_guess_ambiguous_cross_file_parent(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    analysis = [
+        {
+            "file": str(tmp_path / "one.py"), "language": "python",
+            "imports": [], "classes": [{"name": "Base", "line": 1}],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [], "implementations": [],
+        },
+        {
+            "file": str(tmp_path / "two.py"), "language": "python",
+            "imports": [], "classes": [{"name": "Base", "line": 1}],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [], "implementations": [],
+        },
+        {
+            "file": str(tmp_path / "child.py"), "language": "python",
+            "imports": [], "classes": [{"name": "Child", "line": 1}],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [{"class": "Child", "parent": "Base", "line": 1}],
+            "implementations": [],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    assert not [
+        edge for edge in graph["edges"]
+        if edge["relationship"] == "extends"
+        and edge["source"].endswith(":Child:1")
+    ]
+    assert {
+        "file": analysis[2]["file"], "kind": "extends",
+        "source": "Child", "target": "Base", "reason": "ambiguous_target",
+    } in graph["unresolved_relationships"]
