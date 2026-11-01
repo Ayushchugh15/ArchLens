@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Runtime parser dependency for ArchLens JavaScript and TypeScript analysis",
+  "dependencies": {
+    "typescript": "5.8.3"
+  }
+}

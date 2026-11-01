@@ -7,6 +7,7 @@ from pathlib import Path
 from tree_sitter_language_pack import get_parser
 
 from analyzer.language_support import LANGUAGE_BY_EXTENSION
+from analyzer.parsers.tree_sitter_parser import TreeSitterParser
 
 
 IGNORE_DIRS = {
@@ -185,13 +186,42 @@ def create_chunks(repository_path):
 
             if language == "python":
                 chunks.extend(_python_chunks(source, relative_path, repo_name))
+            elif language in {"javascript", "typescript", "tsx"}:
+                parsed = TreeSitterParser(language).parse_file(file_path)
+                for declaration in parsed.get("declaration_chunks", []):
+                    chunks.append({
+                        "document": declaration["code"],
+                        "metadata": {
+                            "repository": repo_name,
+                            "file": relative_path,
+                            "language": language,
+                            "type": declaration["type"],
+                            "name": declaration["name"],
+                            "class_name": declaration.get("class_name"),
+                            "qualified_name": (
+                                str(declaration["class_name"]) + "." + str(declaration["name"])
+                                if declaration.get("class_name")
+                                and declaration["type"] == "function"
+                                else declaration["name"]
+                            ),
+                            "line": declaration["line"],
+                            "end_line": declaration["end_line"],
+                            "parse_errors": bool(parsed.get("parse_errors", False)),
+                        },
+                    })
+                if parsed.get("error"):
+                    print(
+                        "JavaScript/TypeScript chunking skipped declarations in "
+                        + relative_path + ": " + parsed["error"]
+                    )
             else:
                 declaration_chunks, error = _tree_sitter_chunks(
                     source_bytes, relative_path, repo_name, language
                 )
                 chunks.extend(declaration_chunks)
                 if error:
-                    print(f"Tree-sitter chunking skipped declarations in {relative_path}: {error}")
+                    print("Tree-sitter chunking skipped declarations in "
+                          + relative_path + ": " + error)
 
     return chunks
 
