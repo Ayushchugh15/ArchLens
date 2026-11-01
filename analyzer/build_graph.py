@@ -257,6 +257,75 @@ def build_graph(analysis_file):
                     "line": relationship.get("line"),
                 })
 
+    # Resolve cross-file inheritance and interface implementation only when
+    # the referenced symbol has one unambiguous definition in the repository.
+    # Ambiguous and missing references are retained as diagnostics, not guessed.
+    classes_by_name = defaultdict(list)
+    interfaces_by_name = defaultdict(list)
+
+    for (file_path, class_name), node_id in class_nodes.items():
+        classes_by_name[class_name].append((file_path, node_id))
+
+    for (file_path, interface_name), node_id in interface_nodes.items():
+        interfaces_by_name[interface_name].append((file_path, node_id))
+
+    unresolved_relationships = []
+
+    for item in analysis:
+        file_path = item["file"]
+
+        for relationship in item.get("inheritance", []):
+            child_name = relationship.get("class")
+            parent_name = relationship.get("parent")
+            child_id = class_nodes.get((file_path, child_name))
+            if not child_id or not parent_name:
+                continue
+            if class_nodes.get((file_path, parent_name)):
+                continue
+
+            candidates = classes_by_name.get(parent_name, [])
+            candidates = [entry for entry in candidates if entry[0] != file_path]
+            if len(candidates) == 1:
+                edges.append({
+                    "source": child_id,
+                    "target": candidates[0][1],
+                    "relationship": "extends",
+                    "line": relationship.get("line"),
+                    "resolution": "unique_cross_file_symbol",
+                })
+            elif len(candidates) > 1:
+                unresolved_relationships.append({
+                    "file": file_path, "kind": "extends",
+                    "source": child_name, "target": parent_name,
+                    "reason": "ambiguous_target",
+                })
+
+        for relationship in item.get("implementations", []):
+            child_name = relationship.get("class")
+            interface_name = relationship.get("interface")
+            child_id = class_nodes.get((file_path, child_name))
+            if not child_id or not interface_name:
+                continue
+            if interface_nodes.get((file_path, interface_name)):
+                continue
+
+            candidates = interfaces_by_name.get(interface_name, [])
+            candidates = [entry for entry in candidates if entry[0] != file_path]
+            if len(candidates) == 1:
+                edges.append({
+                    "source": child_id,
+                    "target": candidates[0][1],
+                    "relationship": "implements",
+                    "line": relationship.get("line"),
+                    "resolution": "unique_cross_file_symbol",
+                })
+            elif len(candidates) > 1:
+                unresolved_relationships.append({
+                    "file": file_path, "kind": "implements",
+                    "source": child_name, "target": interface_name,
+                    "reason": "ambiguous_target",
+                })
+
     # Create module index for symbol-level import resolution.
     module_map = build_module_index(analysis)
 
@@ -576,6 +645,7 @@ def build_graph(analysis_file):
     return {
         "nodes": nodes,
         "edges": unique_edges,
+        "unresolved_relationships": unresolved_relationships,
         "call_resolution": {
             "resolved_calls": resolved_calls,
             "unresolved_calls": unresolved_calls,
