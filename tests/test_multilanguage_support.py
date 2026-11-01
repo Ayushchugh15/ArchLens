@@ -144,3 +144,37 @@ def test_build_graph_does_not_guess_ambiguous_cross_file_parent(tmp_path):
         "file": analysis[2]["file"], "kind": "extends",
         "source": "Child", "target": "Base", "reason": "ambiguous_target",
     } in graph["unresolved_relationships"]
+
+
+def test_build_graph_prefers_same_file_parent_over_external_duplicate(tmp_path):
+    import json
+
+    from analyzer.build_graph import build_graph
+
+    analysis = [
+        {
+            "file": str(tmp_path / "local.py"), "language": "python",
+            "imports": [], "classes": [
+                {"name": "Base", "line": 1}, {"name": "Child", "line": 2}
+            ],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [{"class": "Child", "parent": "Base", "line": 2}],
+            "implementations": [],
+        },
+        {
+            "file": str(tmp_path / "external.py"), "language": "python",
+            "imports": [], "classes": [{"name": "Base", "line": 1}],
+            "interfaces": [], "functions": [], "calls": [],
+            "inheritance": [], "implementations": [],
+        },
+    ]
+    analysis_file = tmp_path / "analysis.json"
+    analysis_file.write_text(json.dumps(analysis), encoding="utf-8")
+
+    graph = build_graph(str(analysis_file))
+    child = f"class:{analysis[0]['file']}:Child:2"
+    targets = {
+        edge["target"] for edge in graph["edges"]
+        if edge["relationship"] == "extends" and edge["source"] == child
+    }
+    assert targets == {f"class:{analysis[0]['file']}:Base:1"}
