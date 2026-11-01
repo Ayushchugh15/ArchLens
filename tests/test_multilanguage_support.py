@@ -372,3 +372,23 @@ def test_python_instance_method_resolution_respects_function_scope(tmp_path):
         detail["reason"] == "target_not_found"
         for detail in graph["unresolved_call_details"]
     )
+
+
+
+def test_repository_analyzer_skips_unsupported_file_extensions(tmp_path):
+    (tmp_path / "main.py").write_text(
+        "def main():\\n    return 1\\n", encoding="utf-8"
+    )
+    (tmp_path / "settings.json").write_text(
+        '{"enabled": true}', encoding="utf-8"
+    )
+    (tmp_path / "README.md").write_text(
+        "# Project documentation", encoding="utf-8"
+    )
+    (tmp_path / "logo.png").write_bytes(b"not really an image")
+
+    results = analyze_repository(str(tmp_path))
+
+    assert len(results) == 1
+    assert results[0]["language"] == "python"
+    assert results[0]["file"].endswith("main.py")
