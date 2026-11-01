@@ -619,9 +619,31 @@
         </div>
 
 
+        <div class="graph-toolbar" aria-label="Architecture graph controls">
+            <label for="graphNodeLevel">View
+                <select id="graphNodeLevel">
+                    <option value="overview">Overview</option>
+                    <option value="detail">Detailed view</option>
+                </select>
+            </label>
+            <label for="graphRelationshipFilter">Relationship
+                <select id="graphRelationshipFilter">
+                    <option value="all">All relationships</option>
+                </select>
+            </label>
+            <label class="graph-search-label" for="graphSearch">Find component
+                <input id="graphSearch" type="search" placeholder="Search class, file, or module">
+            </label>
+            <label class="graph-toggle" for="graphEdgeLabels">
+                <input id="graphEdgeLabels" type="checkbox">
+                Show edge labels
+            </label>
+            <span class="graph-hint">Overview hides function-level detail to reduce clutter.</span>
+        </div>
+
         <!-- REAL GRAPH -->
 
-        <div id="cy"></div>
+        <div id="cy" role="img" aria-label="Interactive software architecture graph"></div>
 
 
         <!-- NODE DETAILS -->
