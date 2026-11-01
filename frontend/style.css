@@ -1098,3 +1098,51 @@ border: 1px solid #cbd5e1 !important;
 #sources{display:flex;flex-wrap:wrap;gap:6px}#sources .source{margin:0;overflow-wrap:anywhere}
 @media(max-width:520px){.assistant-toggle{right:14px;bottom:14px}.assistant-panel{padding:17px}}
 @media(prefers-reduced-motion:reduce){.assistant-panel{transition:none}}
+
+
+/* Collapsible architecture risk register */
+.risk-register-disclosure { width: 100%; }
+.risk-register-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    cursor: pointer;
+    list-style: none;
+    padding: 2px 0;
+}
+.risk-register-summary::-webkit-details-marker { display: none; }
+.risk-register-summary::after {
+    content: "＋";
+    margin-left: auto;
+    color: #93c5fd;
+    font-size: 20px;
+    font-weight: 700;
+}
+.risk-register-disclosure[open] .risk-register-summary::after { content: "−"; }
+.risk-register-title { color: #f1f5f9; font-size: 17px; font-weight: 700; }
+.risk-register-count {
+    padding: 6px 10px;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    background: #17263b;
+    color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.risk-register-content {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid #293548;
+}
+.risk-register-description {
+    margin: 0 0 16px;
+    color: #98a6bc;
+    font-size: 13px;
+    line-height: 1.6;
+}
+@media(max-width:520px) {
+    .risk-register-summary { flex-wrap: wrap; }
+    .risk-register-count { margin-left: 0; }
+}
