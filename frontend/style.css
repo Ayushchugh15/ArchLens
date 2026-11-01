@@ -1079,3 +1079,22 @@ border: 1px solid #cbd5e1 !important;
     .graph-toolbar select { width: 100%; }
     #cy { min-height: 500px; }
 }
+
+
+/* Persistent, collapsible ArchLens AI assistant */
+.assistant-toggle{position:fixed;right:24px;bottom:24px;z-index:1200;display:inline-flex;align-items:center;gap:9px;min-height:52px;padding:0 19px;border:1px solid #1d4ed8;border-radius:999px;background:#1d4ed8;color:#fff;box-shadow:0 12px 30px rgba(15,23,42,.24);font-weight:700;cursor:pointer}
+.assistant-toggle:hover{background:#1e40af}.assistant-toggle-icon{font-size:19px;line-height:1}
+.assistant-panel{position:fixed;top:0;right:0;z-index:1199;display:flex;flex-direction:column;width:min(430px,100vw);height:100dvh;padding:22px;overflow-y:auto;border-left:1px solid #dbe3ee;background:#fff;box-shadow:-18px 0 48px rgba(15,23,42,.18);transform:translateX(105%);visibility:hidden;transition:transform .24s ease,visibility .24s ease}
+.assistant-panel.is-open{transform:translateX(0);visibility:visible}
+.assistant-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:17px;border-bottom:1px solid #e2e8f0}
+.assistant-eyebrow{color:#2563eb;font-size:10px;font-weight:800;letter-spacing:1.5px}
+.assistant-header h2{margin:7px 0 5px;color:#172033;font-size:22px}.assistant-header p{margin:0;color:#64748b;font-size:13px}
+.assistant-close{width:36px;height:36px;padding:0;border-radius:8px;background:#f1f5f9;color:#334155;font-size:25px;line-height:1}
+.assistant-context{margin:16px 0;padding:10px 12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1e40af;font-size:12px;overflow-wrap:anywhere}
+.assistant-input-label{margin-bottom:7px;color:#334155;font-size:13px;font-weight:700}.assistant-question{min-height:105px;max-height:190px;resize:vertical;font-family:inherit}
+.assistant-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}.assistant-shortcut{color:#64748b;font-size:11px}.assistant-send{flex-shrink:0}
+.assistant-response{margin-top:22px}.assistant-response h3{margin:18px 0 9px;color:#172033;font-size:14px}
+#answer{margin-top:0;padding:14px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;color:#1e293b;font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+#sources{display:flex;flex-wrap:wrap;gap:6px}#sources .source{margin:0;overflow-wrap:anywhere}
+@media(max-width:520px){.assistant-toggle{right:14px;bottom:14px}.assistant-panel{padding:17px}}
+@media(prefers-reduced-motion:reduce){.assistant-panel{transition:none}}
