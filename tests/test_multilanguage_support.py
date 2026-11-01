@@ -377,7 +377,7 @@ def test_python_instance_method_resolution_respects_function_scope(tmp_path):
 
 def test_repository_analyzer_skips_unsupported_file_extensions(tmp_path):
     (tmp_path / "main.py").write_text(
-        "def main():\\n    return 1\\n", encoding="utf-8"
+        "def main(): return 1", encoding="utf-8"
     )
     (tmp_path / "settings.json").write_text(
         '{"enabled": true}', encoding="utf-8"
