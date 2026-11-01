@@ -47,6 +47,16 @@ def test_chunker_creates_language_tagged_chunks(tmp_path):
     } <= languages
     assert all(chunk["document"].strip() for chunk in chunks)
 
+    declaration_languages = {
+        chunk["metadata"]["language"]
+        for chunk in chunks
+        if chunk["metadata"]["type"] in {"class", "function"}
+    }
+    assert {
+        "java", "csharp", "go", "c", "cpp",
+        "rust", "php", "ruby", "kotlin", "swift",
+    } <= declaration_languages
+
 
 def test_javascript_and_typescript_receive_language_tagged_chunks():
     chunks = create_chunks("tests/fixtures")
