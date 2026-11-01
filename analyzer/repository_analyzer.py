@@ -285,7 +285,7 @@ def main():
         json.dump(results, file, indent=2)
 
     print("Repository analyzed successfully.")
-    print(f"Python files found: {len(results)}")
+    print(f"Source files analyzed: {len(results)}")
     print(f"Analysis saved to: {output_file}")
 
 
