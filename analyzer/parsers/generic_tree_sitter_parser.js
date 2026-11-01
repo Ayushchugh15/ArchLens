@@ -2,7 +2,6 @@
 // Parse non-Python, non-JavaScript/TypeScript sources with Tree-sitter WebAssembly.
 // The parser runs in a separate Node process; Python never loads the native binding.
 const fs = require("node:fs");
-const path = require("node:path");
 
 const CLASS_NODES = new Set([
   "class_declaration", "interface_declaration", "enum_declaration",
@@ -108,7 +107,8 @@ async function main() {
     parser.setLanguage(grammar);
     const tree = parser.parse(source);
     const root = tree.rootNode;
-    if (root.hasError) result.parse_errors = true;
+    const hasParseErrors = typeof root.hasError === "function" ? root.hasError() : root.hasError;
+    if (hasParseErrors) result.parse_errors = true;
 
     function visit(node, enclosingClass = null) {
       const type = node.type;
@@ -159,7 +159,6 @@ async function main() {
 
     visit(root);
     parser.delete();
-    grammar.delete();
   } catch (error) {
     result.error = error?.stack || String(error);
   }
