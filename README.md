@@ -91,7 +91,7 @@ Normalized Analysis Records
 
 ## Run locally
 
-Install dependencies (Node.js 22+ is required for JavaScript/TypeScript/JSX/TSX parsing):
+Install dependencies (Node.js 18+ is required for JavaScript/TypeScript/JSX/TSX parsing):
 
 ```bash
 npm install
