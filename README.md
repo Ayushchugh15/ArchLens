@@ -123,7 +123,7 @@ The multi-language tests verify that the configured Tree-sitter grammars can be 
 ## Current limitations
 
 - Generic parser support is not equivalent to production-grade semantic analysis for every language.
-- Cross-file symbol and call resolution is still limited; existing JavaScript/TypeScript named class import handling is a narrow prototype.
+- Cross-file inheritance and interface implementation are resolved only when a referenced symbol has one unique definition; ambiguous matches are reported rather than guessed.\n- Python and JavaScript/TypeScript import-to-class links remain limited to the import forms currently extracted by their parsers.\n- Cross-file function/method call resolution and language-specific module/export semantics are not yet implemented.
 - Code chunking and indexing are language-aware, but retrieval quality must be evaluated per language.
 - Large repositories may require chunk-size limits, incremental indexing, and resource controls.
 - Private GitHub repositories and authenticated Git providers are not currently supported by the import endpoint.
