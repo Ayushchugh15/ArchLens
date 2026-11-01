@@ -450,6 +450,7 @@ def build_graph(analysis_file):
                 "class": class_name,
                 "line": line,
                 "parameter_count": function.get("parameter_count"),
+                "parameter_types": function.get("parameter_types"),
             }
 
             function_nodes[function_name].append(function_info)
@@ -518,7 +519,7 @@ def build_graph(analysis_file):
     for (owner_file, owner_name), owner_id in {**class_nodes, **interface_nodes}.items():
         java_types[owner_name].append(owner_file)
 
-    def java_owner_methods(type_name, method_name, argument_count=None):
+    def java_owner_methods(type_name, method_name, argument_count=None, argument_types=None):
         if not type_name or len(set(java_types.get(type_name, []))) != 1:
             return []
         owner_file = java_types[type_name][0]
@@ -532,11 +533,27 @@ def build_graph(analysis_file):
                 if candidate.get("parameter_count") == argument_count
             ]
             if arity_matches:
-                return arity_matches
-            if candidates and all(
+                candidates = arity_matches
+            elif candidates and all(
                 candidate.get("parameter_count") is not None
                 for candidate in candidates
             ):
+                return []
+
+        # Prefer exact declared parameter types when every call argument has
+        # a locally known type. If type information is incomplete, retain the
+        # conservative arity-based candidates instead of guessing.
+        if argument_types and all(argument_types):
+            typed_candidates = [
+                candidate for candidate in candidates
+                if candidate.get("parameter_types")
+                and len(candidate["parameter_types"]) == len(argument_types)
+                and all(candidate_type is not None for candidate_type in candidate["parameter_types"])
+                and candidate["parameter_types"] == argument_types
+            ]
+            if typed_candidates:
+                return typed_candidates
+            if any(candidate.get("parameter_types") for candidate in candidates):
                 return []
         return candidates
 
@@ -705,8 +722,28 @@ def build_graph(analysis_file):
                         target_owner = next(iter(all_receiver_types))
 
                 if target_owner:
+                    argument_types = []
+                    typed_arguments = {
+                        variable.get("name"): variable.get("type")
+                        for variable in item.get("typed_variables", [])
+                        if variable.get("class") == caller_class
+                        and variable.get("function") == called_from
+                    }
+                    for argument in call.get("argument_texts", []):
+                        argument = argument.strip()
+                        if argument in typed_arguments:
+                            argument_types.append(typed_arguments[argument])
+                        elif argument == "true" or argument == "false":
+                            argument_types.append("boolean")
+                        elif argument.startswith('"') or argument.startswith("'"):
+                            argument_types.append("String")
+                        elif argument.isdigit():
+                            argument_types.append("int")
+                        else:
+                            argument_types.append(None)
                     owner_candidates = java_owner_methods(
-                        target_owner, called_name, call.get("argument_count")
+                        target_owner, called_name, call.get("argument_count"),
+                        argument_types if argument_types else None
                     )
                     if len(owner_candidates) == 1:
                         target_candidates = owner_candidates
