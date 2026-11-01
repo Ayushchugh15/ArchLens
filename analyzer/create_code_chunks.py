@@ -2,240 +2,221 @@ import ast
 import json
 import os
 import sys
+from pathlib import Path
+
+from tree_sitter_language_pack import get_parser
+
+from analyzer.language_support import LANGUAGE_BY_EXTENSION
 
 
 IGNORE_DIRS = {
-    ".git",
-    "__pycache__",
-    "venv",
-    ".venv",
-    "node_modules"
+    ".git", "__pycache__", "venv", ".venv", "node_modules",
+    "vendor", "dist", "build", "target", ".next",
+}
+
+DECLARATION_TYPES = {
+    "class_declaration", "interface_declaration", "enum_declaration",
+    "record_declaration", "struct_declaration", "type_declaration",
+    "type_spec", "struct_specifier", "class_specifier",
+    "function_declaration", "generator_function_declaration",
+    "method_definition", "method_declaration", "constructor_declaration",
+    "function_definition", "function_item", "struct_item", "enum_item",
+    "trait_item", "impl_item", "mod_item", "trait_declaration",
+    "class", "module", "method", "singleton_method",
+    "object_declaration", "protocol_declaration", "enum_specifier",
+    "namespace_definition",
 }
 
 
-def get_source_segment(source, node):
-    """
-    Get the exact source code for an AST node.
-    """
+def _python_chunks(source, relative_path, repo_name):
+    chunks = []
     try:
-        segment = ast.get_source_segment(source, node)
-        return segment if segment else ""
-    except Exception:
-        return ""
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return chunks
+
+    parent_map = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parent_map[child] = parent
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            code = ast.get_source_segment(source, node) or ""
+            if code.strip():
+                chunks.append({
+                    "document": code,
+                    "metadata": {
+                        "repository": repo_name, "file": relative_path,
+                        "language": "python", "type": "class",
+                        "name": node.name, "line": node.lineno,
+                        "end_line": node.end_lineno,
+                    },
+                })
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            code = ast.get_source_segment(source, node) or ""
+            parent = parent_map.get(node)
+            while parent and not isinstance(parent, ast.ClassDef):
+                parent = parent_map.get(parent)
+            class_name = parent.name if parent else None
+            if code.strip():
+                chunks.append({
+                    "document": code,
+                    "metadata": {
+                        "repository": repo_name, "file": relative_path,
+                        "language": "python", "type": "function",
+                        "name": node.name, "class_name": class_name,
+                        "qualified_name": (
+                            f"{class_name}.{node.name}" if class_name else node.name
+                        ),
+                        "line": node.lineno, "end_line": node.end_lineno,
+                    },
+                })
+    return chunks
+
+
+def _tree_sitter_chunks(source_bytes, relative_path, repo_name, language):
+    chunks = []
+    try:
+        parser = get_parser(language)
+        tree = parser.parse(source_bytes)
+        if tree.root_node.has_error:
+            parse_errors = True
+        else:
+            parse_errors = False
+
+        def visit(node, enclosing_class=None):
+            node_type = node.type
+            if node_type in DECLARATION_TYPES:
+                name_node = node.child_by_field_name("name")
+                name = (
+                    source_bytes[name_node.start_byte:name_node.end_byte].decode(
+                        "utf-8", errors="replace"
+                    )
+                    if name_node else None
+                )
+                start = node.start_byte
+                end = node.end_byte
+                code = source_bytes[start:end].decode("utf-8", errors="replace")
+                line = node.start_point.row + 1
+                is_class = node_type in {
+                    "class_declaration", "interface_declaration",
+                    "enum_declaration", "record_declaration",
+                    "struct_declaration", "type_declaration", "type_spec",
+                    "struct_specifier", "class_specifier", "struct_item",
+                    "enum_item", "trait_item", "impl_item", "mod_item",
+                    "trait_declaration", "class", "module",
+                    "object_declaration", "protocol_declaration",
+                    "enum_specifier", "namespace_definition",
+                }
+                kind = "class" if is_class else "function"
+                if code.strip():
+                    chunks.append({
+                        "document": code,
+                        "metadata": {
+                            "repository": repo_name,
+                            "file": relative_path,
+                            "language": language,
+                            "type": kind,
+                            "name": name or f"<anonymous:{kind}>",
+                            "class_name": enclosing_class,
+                            "qualified_name": (
+                                f"{enclosing_class}.{name}"
+                                if enclosing_class and name and not is_class
+                                else name
+                            ),
+                            "line": line,
+                            "end_line": node.end_point.row + 1,
+                            "parse_errors": parse_errors,
+                        },
+                    })
+                if is_class and name:
+                    enclosing_class = name
+
+            for child in node.named_children:
+                visit(child, enclosing_class)
+
+        visit(tree.root_node)
+    except Exception as error:
+        # Keep file-level retrieval available even if one grammar fails.
+        return chunks, str(error)
+    return chunks, None
 
 
 def create_chunks(repository_path):
-    """
-    Create code-aware chunks from a Python repository.
-    """
-
+    """Create language-aware file and declaration chunks for a repository."""
     repository_path = os.path.abspath(repository_path)
     repo_name = os.path.basename(repository_path)
-
     chunks = []
 
     for root, dirs, files in os.walk(repository_path):
-
-        # Ignore unnecessary directories
-        dirs[:] = [
-            d for d in dirs
-            if d not in IGNORE_DIRS
-        ]
+        dirs[:] = [directory for directory in dirs if directory not in IGNORE_DIRS]
 
         for filename in files:
-
-            if not filename.endswith(".py"):
+            extension = Path(filename).suffix.lower()
+            language = LANGUAGE_BY_EXTENSION.get(extension)
+            if not language:
                 continue
 
             file_path = os.path.join(root, filename)
-
-            # Relative path inside repository
-            relative_path = os.path.relpath(
-                file_path,
-                repository_path
-            )
+            relative_path = os.path.relpath(file_path, repository_path)
 
             try:
-                with open(
-                    file_path,
-                    "r",
-                    encoding="utf-8"
-                ) as f:
-                    source = f.read()
-
-                tree = ast.parse(source)
-                parent_map = {}
-
-                for parent in ast.walk(tree):
-                    for child in ast.iter_child_nodes(parent):
-                        parent_map[child] = parent
-            except Exception as e:
-                print(
-                    f"Could not analyze {file_path}: {e}"
-                )
+                source_bytes = Path(file_path).read_bytes()
+                source = source_bytes.decode("utf-8")
+            except (OSError, UnicodeDecodeError):
                 continue
 
-            # -------------------------------------------------
-            # FILE CHUNK
-            # -------------------------------------------------
+            if not source.strip():
+                continue
 
-            if source.strip():
+            # File-level context supports questions that span declarations.
+            chunks.append({
+                "document": source,
+                "metadata": {
+                    "repository": repo_name,
+                    "file": relative_path,
+                    "language": language,
+                    "type": "file",
+                    "name": filename,
+                    "line": 1,
+                },
+            })
 
-                chunks.append({
-                    "document": source,
-                    "metadata": {
-                        "repository": repo_name,
-                        "file": relative_path,
-                        "type": "file",
-                        "name": filename,
-                        "line": 1
-                    }
-                })
-
-            # -------------------------------------------------
-            # CLASS + FUNCTION CHUNKS
-            # -------------------------------------------------
-
-
-            for node in ast.walk(tree):
-
-                # -----------------------------
-                # CLASS
-                # -----------------------------
-
-                if isinstance(node, ast.ClassDef):
-
-                    class_name = node.name
-                    class_code = get_source_segment(
-                        source,
-                        node
-                    )
-
-                    if class_code.strip():
-
-                        chunks.append({
-                            "document": class_code,
-                            "metadata": {
-                                "repository": repo_name,
-                                "file": relative_path,
-                                "type": "class",
-                                "name": node.name,
-                                "line": node.lineno
-                            }
-                        })
-
-                # -----------------------------
-                # FUNCTION
-                # -----------------------------
-
-                elif isinstance(
-                    node,
-                    (ast.FunctionDef, ast.AsyncFunctionDef)
-                ):
-                    parent = parent_map.get(node)
-
-                    while parent and not isinstance(parent, ast.ClassDef):
-                        parent = parent_map.get(parent)
-
-                    parent_class = parent
-
-                    function_code = get_source_segment(
-                        source,
-                        node
-                    )
-
-                    if function_code.strip():
-
-                        chunks.append({
-                            "document": function_code,
-                            "metadata": {
-                                "repository": repo_name,
-                                "file": relative_path,
-                                "type": "function",
-                                "name": node.name,
-                                "class_name": (
-                                    parent_class.name
-                                    if parent_class
-                                    else None
-                                ),
-                                "qualified_name": (
-                                    f"{parent_class.name}.{node.name}"
-                                    if parent_class
-                                    else node.name
-                                ),
-                                "line": node.lineno,
-                                "end_line": node.end_lineno
-                            }
-                        })
+            if language == "python":
+                chunks.extend(_python_chunks(source, relative_path, repo_name))
+            else:
+                declaration_chunks, error = _tree_sitter_chunks(
+                    source_bytes, relative_path, repo_name, language
+                )
+                chunks.extend(declaration_chunks)
+                if error:
+                    print(f"Tree-sitter chunking skipped declarations in {relative_path}: {error}")
 
     return chunks
 
 
 def main():
-
-    # ---------------------------------------------------------
-    # COMMAND-LINE ARGUMENT
-    # ---------------------------------------------------------
-
     if len(sys.argv) < 2:
-
-        print(
-            "Usage: python3 analyzer/create_code_chunks.py "
-            "<repository_path>"
-        )
-
+        print("Usage: python3 analyzer/create_code_chunks.py <repository_path>")
         sys.exit(1)
 
     repository_path = sys.argv[1]
-
-    # ---------------------------------------------------------
-    # VALIDATE REPOSITORY
-    # ---------------------------------------------------------
-
     if not os.path.isdir(repository_path):
-
-        print(
-            f"Repository not found: {repository_path}"
-        )
-
+        print(f"Repository not found: {repository_path}")
         sys.exit(1)
 
-    # Repository name
-    repo_name = os.path.basename(
-        os.path.abspath(repository_path)
-    )
-
-    # ---------------------------------------------------------
-    # CREATE CHUNKS
-    # ---------------------------------------------------------
-
+    repo_name = os.path.basename(os.path.abspath(repository_path))
     chunks = create_chunks(repository_path)
-
-    # ---------------------------------------------------------
-    # OUTPUT FILE
-    # ---------------------------------------------------------
-
     output_file = f"code_chunks_{repo_name}.json"
 
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        json.dump(
-            chunks,
-            f,
-            indent=2
-        )
-
-    # ---------------------------------------------------------
-    # SUMMARY
-    # ---------------------------------------------------------
+    with open(output_file, "w", encoding="utf-8") as file:
+        json.dump(chunks, file, indent=2)
 
     print("Code chunking completed.")
     print(f"Repository: {repo_name}")
     print(f"Total chunks: {len(chunks)}")
+    print(f"Languages: {', '.join(sorted({c['metadata']['language'] for c in chunks}))}")
     print(f"Saved to: {output_file}")
 
 
