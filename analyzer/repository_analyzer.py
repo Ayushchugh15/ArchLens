@@ -162,41 +162,48 @@ def analyze_python_file(file_path):
 
 
 def analyze_repository(repository_path):
+    from analyzer.language_support import LANGUAGE_BY_EXTENSION
     from analyzer.parsers.python_parser import PythonParser
     from analyzer.parsers.tree_sitter_parser import TreeSitterParser
+    from analyzer.parsers.generic_tree_sitter_parser import GenericTreeSitterParser
 
-    parsers = {
-        ".py": PythonParser(),
-        ".js": TreeSitterParser("javascript"),
-        ".ts": TreeSitterParser("typescript"),
-    }
+    python_parser = PythonParser()
+    parser_cache = {}
+
+    def parser_for(extension):
+        language = LANGUAGE_BY_EXTENSION.get(extension)
+        if not language:
+            return None
+        if language == "python":
+            return python_parser
+        if language in {"javascript", "typescript"}:
+            key = language
+            if key not in parser_cache:
+                parser_cache[key] = TreeSitterParser(language)
+            return parser_cache[key]
+        if language == "tsx":
+            key = "tsx"
+        else:
+            key = language
+        if key not in parser_cache:
+            parser_cache[key] = GenericTreeSitterParser(key)
+        return parser_cache[key]
 
     results = []
+    ignored_dirs = {
+        ".git", "__pycache__", "venv", ".venv", "node_modules",
+        "vendor", "dist", "build", "target", ".next",
+    }
 
     for root, dirs, files in os.walk(repository_path):
-        dirs[:] = [
-            d for d in dirs
-            if d not in {
-                ".git",
-                "__pycache__",
-                "venv",
-                ".venv",
-                "node_modules"
-            }
-        ]
-
+        dirs[:] = [directory for directory in dirs if directory not in ignored_dirs]
         for filename in files:
             extension = os.path.splitext(filename)[1].lower()
-
-            if extension not in parsers:
+            parser = parser_for(extension)
+            if parser is None:
                 continue
-
             file_path = os.path.join(root, filename)
-
-            parser = parsers[extension]
-            result = parser.parse_file(file_path)
-
-            results.append(result)
+            results.append(parser.parse_file(file_path))
 
     return results
 
