@@ -543,6 +543,13 @@ def build_graph(analysis_file):
         # Prefer exact declared parameter types when every call argument has
         # a locally known type. If type information is incomplete, retain the
         # conservative arity-based candidates instead of guessing.
+        # Type matching is only needed to disambiguate overloaded methods.
+        # If arity leaves one candidate, keep it: strict string equality would
+        # incorrectly reject valid Java calls involving boxing, widening, or
+        # qualified/generic type spellings.
+        if len(candidates) <= 1:
+            return candidates
+
         if argument_types and all(argument_types):
             typed_candidates = [
                 candidate for candidate in candidates
@@ -553,8 +560,6 @@ def build_graph(analysis_file):
             ]
             if typed_candidates:
                 return typed_candidates
-            if any(candidate.get("parameter_types") for candidate in candidates):
-                return []
         return candidates
 
     resolved_calls = 0
