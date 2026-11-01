@@ -494,7 +494,7 @@ function displayArchitecture(graph) {
             const matchesQuery = !query ||
                 node.data("label").toLowerCase().includes(query) ||
                 node.data("file").toLowerCase().includes(query);
-            node.style("display", (detailMode || visibleInOverview) ? "element" : "none");
+            node.style("display", (detailMode || visibleInOverview || (query && matchesQuery)) ? "element" : "none");
             node.toggleClass("search-match", Boolean(query && matchesQuery));
             node.toggleClass("search-dim", Boolean(query && !matchesQuery));
         });
