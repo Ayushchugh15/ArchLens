@@ -234,8 +234,14 @@ def analyze_repository(repository_path):
         dirs[:] = [directory for directory in dirs if directory not in ignored_dirs]
         for filename in files:
             extension = os.path.splitext(filename)[1].lower()
+            language = LANGUAGE_BY_EXTENSION.get(extension)
+
+            # Repositories contain many non-source files (JSON, YAML, Markdown,
+            # images, lockfiles, etc.). Analyze only registered source extensions.
+            if not language:
+                continue
+
             file_path = os.path.join(root, filename)
-            language = LANGUAGE_BY_EXTENSION[extension]
             try:
                 parser = parser_for(extension)
                 results.append(parser.parse_file(file_path))
