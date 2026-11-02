@@ -1146,3 +1146,108 @@ border: 1px solid #cbd5e1 !important;
     .risk-register-summary { flex-wrap: wrap; }
     .risk-register-count { margin-left: 0; }
 }
+
+
+/* =========================================
+   GITHUB REPOSITORY IMPORT
+========================================= */
+
+.github-import-panel {
+    margin-top: 22px;
+    padding: 20px;
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #f8fbff, #ffffff);
+}
+
+.github-import-copy h3 {
+    margin: 0 0 6px;
+    color: #172033;
+    font-size: 18px;
+}
+
+.github-import-copy p,
+.github-import-help {
+    margin: 0 0 14px;
+    color: #64748b;
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+.github-import-form label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 700;
+    color: #334155;
+}
+
+.github-import-controls {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.github-import-controls input {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #172033;
+    font-size: 15px;
+}
+
+.github-import-controls input:focus {
+    outline: 2px solid #bfdbfe;
+    border-color: #2563eb;
+}
+
+.github-import-controls button:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.github-import-help {
+    margin: 9px 0 0;
+    font-size: 12px;
+}
+
+.github-import-status {
+    display: none;
+    margin-top: 12px;
+    padding: 11px 13px;
+    border-radius: 8px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+}
+
+.github-import-status:not(:empty) {
+    display: block;
+}
+
+.github-import-status.is-loading {
+    color: #1e40af;
+    background: #eff6ff;
+}
+
+.github-import-status.success {
+    color: #166534;
+    background: #f0fdf4;
+}
+
+.github-import-status.error {
+    color: #991b1b;
+    background: #fef2f2;
+}
+
+@media (max-width: 700px) {
+    .github-import-controls {
+        flex-direction: column;
+    }
+
+    .github-import-controls button {
+        width: 100%;
+    }
+}
