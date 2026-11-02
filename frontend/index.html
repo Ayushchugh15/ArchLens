@@ -322,6 +322,29 @@
         </div>
 
 
+        <div class="github-import-panel" aria-labelledby="githubImportTitle">
+            <div class="github-import-copy">
+                <h3 id="githubImportTitle">Import GitHub Repository</h3>
+                <p>Paste a public GitHub repository URL. ArchLens will clone it, analyze supported source files, build the architecture graph, and index code for AI questions.</p>
+            </div>
+            <form id="githubImportForm" class="github-import-form">
+                <label for="githubRepositoryUrl">GitHub repository URL</label>
+                <div class="github-import-controls">
+                    <input
+                        id="githubRepositoryUrl"
+                        name="url"
+                        type="url"
+                        placeholder="https://github.com/owner/repository"
+                        autocomplete="url"
+                        required
+                    >
+                    <button type="submit" id="githubImportButton">Import Repository</button>
+                </div>
+                <p class="github-import-help">Start with a public repository. Large repositories may take several minutes to analyze.</p>
+            </form>
+            <div id="githubImportStatus" class="github-import-status" role="status" aria-live="polite"></div>
+        </div>
+
         <div id="status">
             Connecting to backend...
         </div>
