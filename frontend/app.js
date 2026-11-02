@@ -192,6 +192,83 @@ async function loadRepositories() {
 
 
 /* =========================================================
+   IMPORT GITHUB REPOSITORY
+========================================================= */
+
+async function importGitHubRepository(event) {
+    event.preventDefault();
+
+    const input = getElement("githubRepositoryUrl");
+    const button = getElement("githubImportButton");
+    const status = getElement("githubImportStatus");
+    const form = getElement("githubImportForm");
+    const url = input?.value.trim();
+
+    if (!url || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(url)) {
+        if (status) {
+            status.className = "github-import-status error";
+            status.textContent = "Enter a valid public GitHub URL, such as https://github.com/owner/repository.";
+        }
+        input?.focus();
+        return;
+    }
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Importing...";
+    }
+    if (status) {
+        status.className = "github-import-status is-loading";
+        status.textContent = "Cloning repository and analyzing source files. This can take several minutes; keep this page open.";
+    }
+
+    try {
+        const result = await apiRequest("/import-repository", {
+            method: "POST",
+            body: JSON.stringify({ url })
+        });
+
+        const repository = result.repository;
+        if (!repository) {
+            throw new Error("Import completed but the API did not return a repository identifier.");
+        }
+
+        await loadRepositories();
+
+        const repositorySelect = getElement("repository");
+        if (repositorySelect) {
+            repositorySelect.value = repository;
+        }
+
+        await loadArchitecture();
+
+        if (status) {
+            const languages = Object.entries(result.language_counts || {})
+                .map(([language, count]) => `${language}: ${count}`)
+                .join(", ");
+            status.className = "github-import-status success";
+            status.textContent =
+                `Imported ${repository} successfully. ${result.analyzed_files ?? 0} files, ${result.graph_nodes ?? 0} graph nodes, ${result.graph_edges ?? 0} relationships, and ${result.chunks ?? 0} code chunks.` +
+                (languages ? ` Languages: ${languages}.` : "");
+        }
+
+        if (form) form.reset();
+    } catch (error) {
+        console.error("GitHub repository import failed:", error);
+        if (status) {
+            status.className = "github-import-status error";
+            status.textContent = `Import failed: ${error.message}. Check the backend logs for details.`;
+        }
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = "Import Repository";
+        }
+    }
+}
+
+
+/* =========================================================
    LOAD ARCHITECTURE
 ========================================================= */
 
@@ -1264,6 +1341,7 @@ function renderConnectedComponents(components) {
 function initializeArchLens() {
     const askButton = getElement("askButton");
     const loadButton = getElement("loadArchitecture");
+    const githubImportForm = getElement("githubImportForm");
     const fitButton = getElement("fitGraph");
     const impactButton = getElement("impactButton");
     const refreshDashboardButton = getElement("refreshDashboard");
@@ -1304,6 +1382,11 @@ function initializeArchLens() {
     document.addEventListener("keydown", event => {
         if (event.key === "Escape" && assistantPanel?.classList.contains("is-open")) setAssistantOpen(false);
     });
+
+    if (githubImportForm && !githubImportForm.dataset.listenerAttached) {
+        githubImportForm.dataset.listenerAttached = "true";
+        githubImportForm.addEventListener("submit", importGitHubRepository);
+    }
 
     if (loadButton && !loadButton.dataset.listenerAttached) {
         loadButton.dataset.listenerAttached = "true";
